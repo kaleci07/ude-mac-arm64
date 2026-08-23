@@ -55,38 +55,58 @@ public final class MacTextKeys {
 
     private MacTextKeys() {}
 
-    /** -javaagent giriş noktası (uygulamanın main()'inden önce çalışır). */
+    /**
+     * -javaagent giriş noktası (uygulamanın main()'inden önce çalışır).
+     * premain'den fırlatılan bir istisna JVM'i BAŞLATMAZ (agent hatası ölümcüldür)
+     * → her şey yutulur, hata dosyaya yazılır.
+     */
     public static void premain(String args, Instrumentation inst) {
-        install();
+        try { install(); } catch (Throwable t) { AgentLog.failed("premain", t); }
     }
 
     /** Çalışan JVM'e sonradan iliştirilme (attach) giriş noktası. */
     public static void agentmain(String args, Instrumentation inst) {
-        install();
+        try { install(); } catch (Throwable t) { AgentLog.failed("agentmain", t); }
+    }
+
+    /**
+     * Tek bir kurulum adımını yalıtır: biri patlarsa DİĞERLERİ yine kurulur ve
+     * hata ~/Library/Logs/ude-agent.txt'ye yazılır. Eskiden adımlar zincirlemeydi;
+     * ortadaki bir hata sonraki tüm özellikleri (kısayollar, Option karakterleri,
+     * odak bağlamaları…) sessizce devre dışı bırakıyordu — kullanıcı yalnızca
+     * "kısayollar çalışmıyor" görüyordu, hiçbir yerde iz kalmıyordu.
+     */
+    private static void step(String name, Runnable r) {
+        try {
+            r.run();
+            AgentLog.ok(name);
+        } catch (Throwable t) {
+            AgentLog.failed(name, t);
+        }
     }
 
     private static void install() {
         // Native diyalog (NSSavePanel) pano kısayolları: dosya adı kutusunda
         // Cmd+V/C/X/A. Panel AWT olay zincirinin dışında olduğundan Java tarafında
         // çözülemez; agent jar'ın yanındaki dylib NSEvent local monitor kurar.
-        loadNativeDialogKeys();
+        step("native-dialog-keys", MacTextKeys::loadNativeDialogKeys);
         // UYAP'ın alışılmadık Ctrl kısayollarını standart Cmd kısayollarına bağla
         // (Cmd+B→kalın, Cmd+I→italik, Cmd+U→altı çizili, Cmd+F→bul, Cmd+S→kaydet …).
-        MacShortcutRemap.install();
+        step("shortcuts", MacShortcutRemap::install);
         // macOS Option ile üretilen özel karakterleri (@, #, [, ], { } \ | …) metne
         // yazılabilir kıl (Türkçe-Q klavye; mnemonic baypası + KEY_TYPED ekleme).
-        MacOptionChars.install();
+        step("option-chars", MacOptionChars::install);
         // Ribbon tooltip'lerindeki Windows kısayollarını Mac karşılıklarıyla değiştir
         // (Kaydet "(Shift+Ctrl+K)" → "(⌘S)", Kalın "(Ctrl+K)" → "(⌘B)", hizalama → "(⌘L)" …).
-        MacTooltips.install();
+        step("tooltips", MacTooltips::install);
         // Dikte/IME teşhisi (UDE_DICTLOG=1 ile etkin; aksi halde no-op).
-        DictationProbe.install();
+        step("dictation-probe", DictationProbe::install);
         // Dikte düzeltmesi: no-op InputMethodListener → sentetik keyTyped kapanır,
         // commit kit'in normal yazma aksiyonundan akar (metin kaybı + donma biter).
-        DictationFix.install();
+        step("dictation-fix", DictationFix::install);
         // macOS sistem geneli Metin Değiştirme (Ayarlar → Klavye) kısayollarını
         // UDE metin alanlarında uygula ("mrb " → "Merhaba! ").
-        TextReplace.install();
+        step("text-replace", TextReplace::install);
         try {
             Toolkit.getDefaultToolkit().addAWTEventListener(new AWTEventListener() {
                 @Override public void eventDispatched(AWTEvent e) {
@@ -97,9 +117,10 @@ public final class MacTextKeys {
                     }
                 }
             }, AWTEvent.FOCUS_EVENT_MASK);
+            AgentLog.ok("focus-bindings");
         } catch (Throwable t) {
-            // Agent asla uygulamayı düşürmemeli: hata olursa sessizce vazgeç.
-            System.err.println("[macos-textkeys] kurulamadı: " + t);
+            // Agent asla uygulamayı düşürmemeli: hata olursa vazgeç (ama iz bırak).
+            AgentLog.failed("focus-bindings", t);
         }
     }
 
@@ -117,7 +138,7 @@ public final class MacTextKeys {
             java.io.File lib = new java.io.File(jar.getParentFile(), "libnativedialogkeys.dylib");
             if (lib.isFile()) System.load(lib.getAbsolutePath());
         } catch (Throwable t) {
-            System.err.println("[macos-textkeys] native diyalog dylib yüklenemedi: " + t);
+            AgentLog.failed("native-dialog-keys/load", t);
         }
     }
 
@@ -130,7 +151,7 @@ public final class MacTextKeys {
             applyBindings0(tc);
         } catch (Throwable t) {
             // applyBindings asla EDT'yi düşürmemeli.
-            System.err.println("[macos-textkeys] bağlama uygulanamadı: " + t);
+            AgentLog.failed("apply-bindings", t);
         }
     }
 

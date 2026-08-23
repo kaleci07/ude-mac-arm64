@@ -1064,6 +1064,19 @@ jar'da varsa atlanır.
   (`a9d16d3`) — canlı popup içeriğiyle bytecode string'lerini karşılaştırmak
   kök teşhisi verdi.
 
+## Agent kurulum günlüğü (issue #6 teşhis kanalı)
+
+`MacTextKeys.install()` adımları (native-dialog-keys, shortcuts, option-chars,
+tooltips, dictation-probe/fix, text-replace, focus-bindings) artık TEK TEK
+`step()` ile yalıtılır: biri patlarsa diğerleri yine kurulur ve hata
+`~/Library/Logs/ude-agent.txt`'ye yazılır (`AgentLog`). Eskiden zincirlemeydi —
+ortadaki bir hata sonraki tüm özellikleri sessizce devre dışı bırakıyordu ve
+`System.err` UDE tarafından yutulduğu için hiçbir iz kalmıyordu ("Cmd kısayolları
+çalışmıyor" tipi raporlar teşhis edilemiyordu). `premain`/`agentmain` de sarıldı:
+premain'den fırlayan istisna JVM'i HİÇ başlatmaz. HATA satırları her zaman,
+`ok` satırları yalnız `UDE_AGENTLOG=1` ile yazılır (normalde dosya hiç oluşmaz).
+Test: `tests/AgentLogTest.java` (javac+java elle; başlıkta komutlar).
+
 ## Teşhis cephaneliği
 
 - **Yamasız uygulamaya agent takma:** `JAVA_TOOL_OPTIONS=-javaagent:/tmp/dbg.jar` —
