@@ -108,20 +108,66 @@ JDK21_DEST="$HOME/Library/Java/JavaVirtualMachines/zulu-21-$JH_ARCH.jdk"
 # toparlar. Tüm curl indirmelerinde "${CURL_NET[@]}" kullanılır.
 CURL_NET=(--http1.1 --retry 5 --retry-delay 2 --connect-timeout 30)
 
+# Kurulu JDK'leri listeleyen macOS aracı. Değişken üzerinden çağrılır ki
+# tests/jdk-select-test.sh saplama (stub) ile JDK seçimini test edebilsin.
+JAVA_HOME_TOOL="${JAVA_HOME_TOOL:-/usr/libexec/java_home}"
+
 c_ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
 c_info() { printf '\033[36m▸\033[0m %s\n' "$*"; }
 c_warn() { printf '\033[33m!\033[0m %s\n' "$*"; }
 c_err()  { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; }
 die()    { c_err "$*"; exit 1; }
 
-# Gerçekten istenen major sürüm mü (java_home yanlış sürüm döndürebiliyor)
-jhome() {  # $1=major  $2=hedef .jdk
-	if [ -x "$2/Contents/Home/bin/java" ]; then echo "$2/Contents/Home"; return 0; fi
-	local h; h="$(/usr/libexec/java_home -v "$1" -a "$JH_ARCH" 2>/dev/null || true)"
+# `java -version` çıktısının sağlayıcı satırı (2. satır), ör.
+#   Zulu:   OpenJDK Runtime Environment Zulu11.86+16-CA (build 11.0.32+1-LTS)
+#   Oracle: Java(TM) SE Runtime Environment 18.9 (build 11.0.24+7-LTS-271)
+jvm_desc() {  # $1=JAVA_HOME
+	"$1/bin/java" -version 2>&1 | sed -n '2p' | sed 's/^[[:space:]]*//'
+}
+
+# Gömülmeye uygun dağıtım mı? Oracle JDK 11 (aarch64) GÖMÜLDÜĞÜNDE üretilen .app
+# açılıştan ~0,3 sn sonra SIGSEGV ile çöküyor (issue #7: StubRoutines::
+# jbyte_disjoint_arraycopy, 4/4 tekrarlanabilir; AYNI jar'lar + AYNI launcher Zulu 11
+# runtime'ıyla sorunsuz açılıyor). Oracle dağıtımı "java version" + "Java(TM) SE
+# Runtime Environment" basar, OpenJDK derlemeleri (Zulu, Temurin, Corretto…)
+# çıktının her yerinde "OpenJDK" geçirir → makinede hazır bulunan JDK yalnız
+# OpenJDK derlemesiyse kabul edilir, değilse Zulu indirilir.
+# UDE_ALLOW_ANY_JDK=1 denetimi kapatır (kendi sorumluluğunuzda).
+jvm_is_openjdk() {  # $1=JAVA_HOME
+	[ "${UDE_ALLOW_ANY_JDK:-0}" = "1" ] && return 0
+	"$1/bin/java" -version 2>&1 | grep -qi 'openjdk'
+}
+
+# java_home'un bulduğu, gerçekten istenen major sürüm (java_home yanlış sürüm
+# döndürebiliyor → -version ile doğrulanır). Sağlayıcı denetimi YAPMAZ.
+jhome_any() {  # $1=major
+	local h; h="$("$JAVA_HOME_TOOL" -v "$1" -a "$JH_ARCH" 2>/dev/null || true)"
 	if [ -n "$h" ] && "$h/bin/java" -version 2>&1 | grep -q "version \"$1"; then echo "$h"; fi
 	return 0
 }
+
+# Gömülecek runtime: önce bizim kurduğumuz Zulu, yoksa makinedeki UYGUN JDK.
+jhome() {  # $1=major  $2=hedef .jdk
+	if [ -x "$2/Contents/Home/bin/java" ]; then echo "$2/Contents/Home"; return 0; fi
+	local h; h="$(jhome_any "$1")"
+	if [ -n "$h" ] && jvm_is_openjdk "$h"; then echo "$h"; fi
+	return 0
+}
 jdk11_home() { jhome 11 "$JDK11_DEST"; }
+
+# Makinede Java 11 var ama gömülmeye uygun değil (Oracle) → nedenini yaz.
+jdk11_rejected() {
+	if [ -z "$(jdk11_home)" ]; then
+		local h; h="$(jhome_any 11)"
+		if [ -n "$h" ]; then
+			c_warn "Makinedeki Java 11 gömülmeye uygun değil: $h"
+			c_warn "  $(jvm_desc "$h")"
+			c_warn "  Oracle JDK 11 gömülen .app açılışta SIGSEGV ile çöküyor (issue #7) → Azul Zulu 11 gerekli."
+			c_warn "  Yine de bu runtime'ı kullanmak isterseniz: UDE_ALLOW_ANY_JDK=1 (önerilmez)."
+		fi
+	fi
+	return 0
+}
 
 find_jpackage() {
 	local v jh
@@ -179,15 +225,25 @@ check_deps() {
 	done
 	c_ok "Araçlar mevcut"
 	local ok=0
-	[ -n "$(jdk11_home)" ] && c_ok "$JH_ARCH Java 11 (runtime): $(jdk11_home)" || { c_warn "$JH_ARCH Java 11 YOK → scripts/build.sh jdk"; ok=1; }
+	local rt11; rt11="$(jdk11_home)"
+	if [ -n "$rt11" ]; then
+		c_ok "$JH_ARCH Java 11 (gömülecek runtime): $rt11"
+		c_info "  sağlayıcı: $(jvm_desc "$rt11")"
+	else
+		jdk11_rejected
+		c_warn "$JH_ARCH Java 11 YOK → scripts/build.sh jdk"; ok=1
+	fi
 	if jp="$(find_jpackage)"; then c_ok "jpackage: $jp"; else c_warn "jpackage'lı 17+ JDK YOK → scripts/build.sh jpackage-jdk"; ok=1; fi
 	return $ok
 }
 
 jdk() {
-	[ -n "$(jdk11_home)" ] && { c_ok "$JH_ARCH Java 11 zaten kurulu."; return 0; }
+	local h; h="$(jdk11_home)"
+	[ -n "$h" ] && { c_ok "$JH_ARCH Java 11 zaten kurulu: $h"; c_info "  sağlayıcı: $(jvm_desc "$h")"; return 0; }
+	jdk11_rejected
 	install_zulu 11 "$JDK11_DEST"
-	[ -n "$(jdk11_home)" ] && c_ok "Kuruldu: $JDK11_DEST" || die "Java 11 kurulum sonrası görünmüyor."
+	h="$(jdk11_home)"; [ -n "$h" ] || die "Java 11 kurulum sonrası görünmüyor."
+	c_ok "Kuruldu: $JDK11_DEST"; c_info "  sağlayıcı: $(jvm_desc "$h")"
 }
 
 jpackage_jdk() {
@@ -870,8 +926,11 @@ package() {
 	[ -d "$BUILD/_textkeys" ] || die "Önce 'textkeys' çalıştır."
 	[ -d "$BUILD/_zoom" ] || die "Önce 'zoom' çalıştır."
 	local jp; jp="$(find_jpackage)" || die "jpackage yok → scripts/build.sh jpackage-jdk"
-	local rt; rt="$(jdk11_home)"; [ -n "$rt" ] || die "Java 11 yok → scripts/build.sh jdk"
+	local rt; rt="$(jdk11_home)"
+	[ -n "$rt" ] || { jdk11_rejected; die "Gömülmeye uygun Java 11 yok → scripts/build.sh jdk"; }
 	[ -f "$rt/lib/jli/libjli.dylib" ] || die "Java 11 runtime layout farklı: $rt"
+	c_info "Gömülecek runtime: $rt"
+	c_info "  sağlayıcı: $(jvm_desc "$rt")"
 
 	# Shenandoah GC bazı Zulu 11 alt-derlemelerinde (Azul'un "en güncel" API'si zamanla
 	# farklı bir build döndürebiliyor) yok; varsa hızlı/düşük-duraklamalı GC olarak
@@ -885,7 +944,7 @@ package() {
 			--java-options -XX:ShenandoahGuaranteedGCInterval=120000)
 		c_ok "Shenandoah GC destekleniyor, etkinleştirildi."
 	else
-		c_warn "Bu Java 11 runtime'ı Shenandoah GC desteklemiyor; varsayılan GC (G1) kullanılacak."
+		c_warn "Bu Java 11 runtime'ı ($(jvm_desc "$rt")) Shenandoah GC desteklemiyor; varsayılan GC (G1) kullanılacak."
 	fi
 
 	c_info "jpackage girdisi hazırlanıyor…"
@@ -1030,7 +1089,10 @@ Hedefler:
   dmg          sürükle-bırak yerleşimli .dmg üret (create-dmg; DMG_OUT ile ad)
   clean / distclean
 
-Ortam: UDE_URL (boşsa indirme sayfasından güncel MAC paketi otomatik çözülür)
+Ortam: UDE_ALLOW_ANY_JDK (1=makinedeki her Java 11 kabul edilir; varsayılan 0 →
+                 yalnız OpenJDK derlemeleri gömülür, Oracle JDK 11 ile üretilen
+                 .app açılışta SIGSEGV ile çöküyor)
+       UDE_URL (boşsa indirme sayfasından güncel MAC paketi otomatik çözülür)
        UDE_DOWNLOAD_PAGE / UDE_ZIP (kaynak), SQLITE_VER (vars: $SQLITE_VER)
        ICONS (1=açık varsayılan | 0=kapalı; modern ikon override + HiDPI yükleyici yaması)
        FOPFONTS (1=açık varsayılan | 0=kapalı; PDF dışa aktarımda Türkçe harf
@@ -1048,6 +1110,10 @@ Ortam: UDE_URL (boşsa indirme sayfasından güncel MAC paketi otomatik çözül
                  bölümü: kişisel antetler tek tıkla + sayfaya sığdırma)
 EOF
 }
+
+# Kütüphane modu: tests/jdk-select-test.sh build.sh'ı source edip yalnız
+# fonksiyonları kullanır; hedef çalıştırılmamalı.
+if [ "${UDE_BUILD_LIB:-0}" = "1" ]; then return 0; fi
 
 case "${1:-all}" in
 	all) all ;; check-deps) check_deps ;; jdk) jdk ;; jpackage-jdk) jpackage_jdk ;;

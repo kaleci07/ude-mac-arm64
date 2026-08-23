@@ -1092,6 +1092,17 @@ jar'da varsa atlanır.
 - bash 3.2 + `set -u`: boş dizi `${arr[@]+"${arr[@]}"}` ile genişletilir.
 - jpackage `-javaagent` satırı jar yoksa JVM'i HİÇ başlatmaz → agent opsiyonelse
   java-options koşullu eklenir (`lookopts` deseni).
+- **Gömülecek runtime OpenJDK derlemesi OLMALI (issue #7):** Oracle JDK 11 (aarch64)
+  gömülen .app açılıştan ~0,3 sn sonra SIGSEGV atıyor
+  (`StubRoutines::jbyte_disjoint_arraycopy`, 4/4; AYNI jar+launcher Zulu 11 ile temiz).
+  Eskiden `jdk11_home` fallback'i `java_home -v 11`'in döndürdüğü HERHANGİ bir 11'i
+  kabul ediyor, `jdk()` de "zaten kurulu" deyip Zulu'yu hiç indirmiyordu. Artık
+  fallback `jvm_is_openjdk` (çıktıda "OpenJDK") denetiminden geçer; reddedilirse
+  neden yazılır ve Zulu indirilir (`UDE_ALLOW_ANY_JDK=1` ile aşılabilir).
+  `check-deps`/`jdk`/`package` gömülecek runtime'ın SAĞLAYICI satırını basar
+  (Oracle'da Shenandoah da yok → sessizce G1'e düşülüyordu). Test:
+  `bash tests/jdk-select-test.sh` (sahte JDK + java_home saplaması; build.sh
+  `UDE_BUILD_LIB=1` ile source edilebilir).
 - `fullWindowContent`/`transparentTitleBar` rootpane client property'leri Zulu 11'de
   pencere açıldıktan SONRA da etkili (FwcProbe ile kanıtlı); trafik ışıkları için
   JRibbon'a 72px sol içlik.

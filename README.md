@@ -304,6 +304,11 @@ Resmî paket x86_64. Native arm64 için:
 
 - macOS Mac (Apple Silicon **veya** Intel — mimari `uname -m` ile otomatik algılanır)
 - **Java 11** (gömülecek runtime, Mac'inizin mimarisi için) — yoksa `make jdk` Azul Zulu 11'i kurar
+  - Gömülecek runtime **OpenJDK derlemesi** olmalıdır (Azul Zulu, Temurin, Corretto…).
+    Makinenizde **Oracle JDK 11** kurulu olsa bile kullanılmaz: Oracle JDK 11 gömülünce
+    uygulama açılıştan hemen sonra çöküyor. Bu durumda `make jdk` sizi uyarır ve
+    Azul Zulu 11'i indirir. Hangi runtime'ın gömüleceğini `make check-deps`
+    çıktısındaki "sağlayıcı" satırından görebilirsiniz.
 - **jpackage'lı 17+ JDK** (jpackage + shim derlemesi) — yoksa `make jpackage-jdk` Azul Zulu 21'i kurar
 - `curl`, `unzip`, `zip`, `codesign`, `plutil` (macOS'ta hazır gelir)
 
