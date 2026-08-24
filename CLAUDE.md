@@ -1080,6 +1080,12 @@ atlanır), `download()` paketlenen UDE sürümünü BASAR + satıcı uç noktas�
 (önek toleranslı) sapmayı uyarır, kur.sh sonunda "Kurulan UDE sürümü: X" yazar.
 Test: `bash tests/kur-selfupdate-test.sh` (yerel sahte origin; ağ/derleme yok;
 `UDE_KUR_SELFUPDATE_ONLY=1` kancasıyla yalnız güncelleme adımı koşar).
+İKİNCİ sessiz yol (README komutunu kullananlar): bootstrap `git pull --ff-only ||
+warn` idi — geçmiş ayrıldıysa YALNIZ uyarı basılıp eski kodla devam ediliyordu.
+Ortak `repo_update()`: ff-only düşerse ağaç KİRLİyse dokunma (geliştirici kopyası),
+TEMİZSE `fetch origin <dal>` + `reset --hard FETCH_HEAD` ile hizala (sığ --depth 1
+klonda da çalışır; testte kapsandı). ZIP olarak indirilmiş (git olmayan) klasörde
+die mesajı artık `rm -rf` komutunu veriyor.
 NOT: fix'ten ÖNCEKİ kur.sh'a sahip kullanıcılar bir kez tek-satırlık komutu (ya da
 `git pull`) çalıştırmalı — eski betik kendini güncelleyemez.
 **5.4.20 doğrulandı (2026-08-24):** tam hat (download→merge→20 yama→package→sign)

@@ -52,11 +52,30 @@ out3="$(UDE_KUR_SELFUPDATE_ONLY=1 bash "$TMP/work/kur.sh" 2>&1)"
 check "kirli kopyada uyarı verilir" "var" "$(printf '%s' "$out3" | grep -q 'yerel değişiklikler' && echo var || echo yok)"
 check "kirli kopyada HEAD değişmez" "$BEHIND" "$(git -C "$TMP/work" rev-parse HEAD)"
 
-# 4) UDE_KUR_SELFUPDATED=1 ile hiç denenmez (bootstrap yolundan gelen çocuk süreç)
+# 3b) Geçmiş AYRILMIŞSA (ff-only düşer) ama ağaç temizse → uzak sürüme sert hizalanır.
+#     Eskiden bu durumda yalnız uyarı basılır, kullanıcı sonsuza dek eski kodda kalırdı.
 git -C "$TMP/work" checkout -q -- README.md
+git -C "$TMP/work" reset --hard -q "$BEHIND"
+echo "# yerel commit" >> "$TMP/work/README.md"
+git -C "$TMP/work" -c user.email=t@t -c user.name=test commit -qam "test: ayrılan geçmiş"
+out3b="$(UDE_KUR_SELFUPDATE_ONLY=1 bash "$TMP/work/kur.sh" 2>&1)"
+check "ayrılan geçmişte hizalama mesajı" "var" "$(printf '%s' "$out3b" | grep -q 'hizalanıyor' && echo var || echo yok)"
+check "ayrılan geçmiş origin'e hizalandı" "$ORIGIN_HEAD" "$(git -C "$TMP/work" rev-parse HEAD)"
+
+# 4) UDE_KUR_SELFUPDATED=1 ile hiç denenmez (bootstrap yolundan gelen çocuk süreç)
+git -C "$TMP/work" reset --hard -q "$BEHIND"
 out4="$(UDE_KUR_SELFUPDATED=1 UDE_KUR_SELFUPDATE_ONLY=1 bash "$TMP/work/kur.sh" 2>&1)"
 check "SELFUPDATED=1 ile güncelleme denenmez" "yok" "$(printf '%s' "$out4" | grep -q 'güncelleniyor' && echo var || echo yok)"
 check "SELFUPDATED=1 sonrası HEAD değişmez" "$BEHIND" "$(git -C "$TMP/work" rev-parse HEAD)"
+
+# 5) GERÇEK kurulum düzeni: --depth 1 (sığ) klon da güncellenebilmeli
+#    (kur.sh depoyu böyle indiriyor; sığ klonda fetch/reset davranışı farklı olabilir)
+git clone -q --depth 1 "file://$TMP/origin" "$TMP/shallow"
+echo "# origin bir kez daha ilerledi" >> "$TMP/origin/README.md"
+git -C "$TMP/origin" -c user.email=t@t -c user.name=test commit -qam "test: origin 2"
+ORIGIN_HEAD2="$(git -C "$TMP/origin" rev-parse HEAD)"
+UDE_KUR_SELFUPDATE_ONLY=1 bash "$TMP/shallow/kur.sh" >/dev/null 2>&1
+check "sığ (--depth 1) klon güncellendi" "$ORIGIN_HEAD2" "$(git -C "$TMP/shallow" rev-parse HEAD)"
 
 [ "$fail" = 0 ] && printf '\033[32mTÜM TESTLER GEÇTİ\033[0m\n' || printf '\033[31mBAŞARISIZ\033[0m\n'
 exit "$fail"

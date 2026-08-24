@@ -127,6 +127,31 @@ reexec_arm64() {
 	exec arch -arm64 /bin/bash "$script" ${1+"$@"}
 }
 
+# ----- Kaynak kodu uzak sürüme getir -----
+# `git pull --ff-only` iki durumda düşer: (a) klasörde yerel değişiklik var,
+# (b) geçmiş ayrılmış/bozulmuş. Eskiden ikisinde de yalnız uyarı basılıp ESKİ kodla
+# devam ediliyordu → kullanıcı kurulum komutunu tekrar tekrar çalıştırsa bile eski
+# UDE sürümünde kalıyordu ve bunu hiç fark etmiyordu. Artık: yerel değişiklik varsa
+# dokunulmaz (geliştirici kopyası), TEMİZ ağaçta kaybedilecek bir şey olmadığından
+# uzak dala sert hizalanır.
+repo_update() {  # $1=depo dizini → 0: güncel/güncellendi, 1: güncellenemedi
+	local d="$1"
+	git -C "$d" pull --ff-only --quiet 2>/dev/null && return 0
+	if [ -n "$(git -C "$d" status --porcelain 2>/dev/null)" ]; then
+		warn "Kaynak kodda yerel değişiklikler var; otomatik güncelleme atlandı."
+		return 1
+	fi
+	local br; br="$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+	[ "$br" = "HEAD" ] && br="main"
+	say "Normal güncelleme yapılamadı; kaynak kod uzak sürüme hizalanıyor…"
+	git -C "$d" fetch --quiet origin "$br" 2>/dev/null \
+		|| git -C "$d" fetch --quiet origin main 2>/dev/null \
+		|| { warn "Uzak depoya erişilemedi (internet?); mevcut sürümle devam ediliyor."; return 1; }
+	git -C "$d" reset --hard --quiet FETCH_HEAD 2>/dev/null \
+		|| { warn "Hizalama başarısız. Temiz kurulum için: rm -rf \"$d\" ve komutu tekrar çalıştırın."; return 1; }
+	return 0
+}
+
 # ----- Önyükleme: depo klasörünün içinde miyiz? -----
 # curl ... | bash ile çalıştırıldığında BASH_SOURCE boş/geçersiz olur; bu durumda
 # kaynak kodu kendimiz indirip oradaki kur.sh'yi yeniden çalıştırırız.
@@ -142,9 +167,9 @@ if [ -z "$SCRIPT_DIR" ] || [ ! -f "$SCRIPT_DIR/scripts/build.sh" ]; then
 	command -v git >/dev/null 2>&1 || die "git bulunamadı (komut satırı araçları eksik olabilir)."
 	if [ -d "$CLONE_DIR/.git" ]; then
 		say "Depo zaten var, en güncel sürüme güncelleniyor: $CLONE_DIR"
-		git -C "$CLONE_DIR" pull --ff-only --quiet || warn "Güncelleme atlandı; mevcut sürümle devam ediliyor."
+		repo_update "$CLONE_DIR" || warn "Güncelleme atlandı; mevcut sürümle devam ediliyor."
 	else
-		[ -e "$CLONE_DIR" ] && die "$CLONE_DIR zaten var ama bir git deposu değil. Lütfen taşıyın/silin."
+		[ -e "$CLONE_DIR" ] && die "$CLONE_DIR zaten var ama bir git deposu değil (ZIP olarak indirilmiş olabilir). Şunu çalıştırıp komutu tekrarlayın:  rm -rf \"$CLONE_DIR\""
 		say "Kaynak kod indiriliyor: $CLONE_DIR"
 		git clone --depth 1 "$REPO_URL" "$CLONE_DIR" --quiet
 	fi
@@ -182,7 +207,7 @@ self_update() {
 	local before after
 	before="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo '')"
 	say "Kaynak kod güncelleniyor: $SCRIPT_DIR"
-	git -C "$SCRIPT_DIR" pull --ff-only --quiet || { warn "Güncelleme yapılamadı; mevcut sürümle devam ediliyor."; return 0; }
+	repo_update "$SCRIPT_DIR" || return 0
 	after="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo '')"
 	if [ "$before" = "$after" ]; then ok "Kaynak kod zaten güncel"; return 0; fi
 	ok "Kaynak kod güncellendi; kurulum güncel betikle yeniden başlatılıyor…"
