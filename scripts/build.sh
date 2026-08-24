@@ -48,6 +48,7 @@ ANTET_SRC="$SCRIPT_DIR/antet" # Antetlerim: arka plan diyaloğunda kişisel ante
 CARET_SRC="$SCRIPT_DIR/macos-caret"     # metin imleci temiz 1px çizim yaması
 PDFFRESH_SRC="$SCRIPT_DIR/macos-pdffresh" # PDF dışa aktarımı canlı belgeden taze serialize (bayat önbellek düzeltmesi)
 LINESPACING_SRC="$SCRIPT_DIR/macos-linespacing" # native satır aralığı menüsüne 1.5 ekleyen yama
+IMGFIX_SRC="$SCRIPT_DIR/macos-imagefix" # okunamayan görselde uyarı + eklenen görseli sayfaya sığdırma
 FOP_SUP="/System/Library/Fonts/Supplemental"   # macOS Arial/Times New Roman (tam Unicode)
 ICONS="${ICONS:-1}"           # 1=açık (varsayılan; modern ikon override + HiDPI yükleyici yaması) | 0=kapalı
 FOPFONTS="${FOPFONTS:-1}"     # 1=açık (varsayılan; PDF Türkçe harf düzeltmesi) | 0=kapalı
@@ -64,6 +65,7 @@ PLAINPASTE="${PLAINPASTE:-1}" # 1=açık (varsayılan; Formatsız Yapıştır �
 CARETFIX="${CARETFIX:-1}" # 1=açık (varsayılan; metin imleci temiz 1px çizim, harf gövdesine binmez) | 0=kapalı
 PDFFRESH="${PDFFRESH:-1}" # 1=açık (varsayılan; "PDF Olarak Kaydet" canlı belgeden taze serialize — "önce Kaydet" gereksinimi kalkar) | 0=kapalı
 LINESPACING="${LINESPACING:-1}" # 1=açık (varsayılan; Giriş>Paragraf satır aralığı menüsüne 1.5 eklenir — satıcı unutmuş) | 0=kapalı
+IMGFIX="${IMGFIX:-1}" # 1=açık (varsayılan; okunamayan görselde Türkçe uyarı + eklenen görsel sayfaya sığar) | 0=kapalı
 
 APP_NAME="Uyap Doküman Editörü"     # görünen ad
 APP="$BUILD/$APP_NAME.app"
@@ -639,6 +641,39 @@ apply_imagefull() {  # $1=JAR — patch_jar içinden çağrılır
 	c_ok "[imagefull] tam-çözünürlük yaması uygulandı."
 }
 
+apply_imagefix() {  # $1=JAR — patch_jar içinden çağrılır (apply_imagefull'DAN SONRA)
+	local JAR="$1"
+	[ "$IMGFIX" = "1" ] || return 0
+	# İdempotans: helper zaten enjekte edilmişse atla (grep -q DEĞİL — SIGPIPE/pipefail tuzağı).
+	if unzip -l "$JAR" 2>/dev/null | grep 'macosimgfix/ImageFit.class' >/dev/null 2>&1; then
+		c_ok "[imagefix] zaten yamalı, atlandı."; return 0
+	fi
+	c_info "[imagefix] okunamayan görselde uyarı + eklenen görseli sayfaya sığdırma yaması…"
+	local jr jc jvs
+	jr="$(java17)"  || { c_warn "[imagefix] 17+ java yok, yama atlandı."; return 0; }
+	jc="$(javac17)" || { c_warn "[imagefix] 17+ javac yok, yama atlandı."; return 0; }
+	jvs="$(icon_deps)"   # Javassist (diğer yamalarla ortak)
+	# 1) helper'ları derle + jar'a enjekte et (patcher'dan ÖNCE; Javassist köprü
+	#    ifadeleri macosimgfix.* sınıflarını jar classpath'inden çözer)
+	rm -rf "$BUILD/_imgfixhelper"; mkdir -p "$BUILD/_imgfixhelper"
+	"$jc" --release 11 -encoding UTF-8 -d "$BUILD/_imgfixhelper" \
+		"$IMGFIX_SRC/macosimgfix/ImageFit.java" "$IMGFIX_SRC/macosimgfix/ImageLoad.java" \
+		|| { c_warn "[imagefix] helper'lar derlenemedi; yama atlandı."; return 0; }
+	( cd "$BUILD/_imgfixhelper" && zip -q -r "$JAR" macosimgfix )
+	# 2) patcher'ı derle + çalıştır + çıktıyı jar'a enjekte et
+	rm -rf "$BUILD/_imgfixpatch"; mkdir -p "$BUILD/_imgfixpatch/out"
+	"$jc" --release 11 -encoding UTF-8 -cp "$jvs" -d "$BUILD/_imgfixpatch" "$IMGFIX_SRC/ImageFixPatch.java" \
+		|| { c_warn "[imagefix] ImageFixPatch derlenemedi; yama atlandı."; return 0; }
+	if ! "$jr" -cp "$BUILD/_imgfixpatch:$jvs" ImageFixPatch "$JAR" "$BUILD/_imgfixpatch/out"; then
+		# Yarım-yama bırakma: helper'ı geri çıkar ki idempotans kontrolü yanılmasın.
+		zip -q -d "$JAR" 'macosimgfix/*' >/dev/null 2>&1 || true
+		c_warn "[imagefix] yama uygulanamadı (UDE sürümü değişmiş olabilir); yama geri alındı."
+		return 0
+	fi
+	( cd "$BUILD/_imgfixpatch/out" && zip -q -r "$JAR" tr )
+	c_ok "[imagefix] görsel ekleme yaması uygulandı."
+}
+
 apply_pasteimage() {  # $1=JAR — patch_jar içinden çağrılır
 	local JAR="$1"
 	[ "$PASTEIMG" = "1" ] || return 0
@@ -920,6 +955,7 @@ patch_jar() {
 	apply_pdffresh "$JAR"
 	apply_linespacing "$JAR"
 	apply_imagefull "$JAR"
+	apply_imagefix "$JAR"
 	apply_pasteimage "$JAR"
 	apply_pasterich "$JAR"
 	apply_plainpaste "$JAR"
@@ -1113,6 +1149,9 @@ Ortam: UDE_ALLOW_ANY_JDK (1=makinedeki her Java 11 kabul edilir; varsayılan 0 �
                  pano imajının Retina tipi BufferedImage cast'ini kırıyordu)
        IMGRESIZE (1=açık varsayılan | 0=kapalı; satır-içi imajı köşe
                  tutamaçlarıyla fare ile boyutlandırma — Word benzeri)
+       IMGFIX (1=açık varsayılan | 0=kapalı; okunamayan görselde — HEIC/WEBP,
+                 bozuk dosya — sessiz başarısızlık yerine Türkçe uyarı, ayrıca
+                 eklenen görselin görünen boyutu sayfaya sığdırılır)
        SKIN (1=açık varsayılan | 0=kapalı; modern düz Substance skin + Flamingo
                  şerit + font + nötr kanvas; macOS koyu görünümde koyu tema)
        LIVETOGGLE (1=açık varsayılan | 0=kapalı; Otomatik Büyük Harf / Baş
@@ -1135,6 +1174,7 @@ case "${1:-all}" in
 	pdf-fresh) PDFFRESH=1 apply_pdffresh "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	line-spacing) LINESPACING=1 apply_linespacing "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	image-full) IMGFULL=1 apply_imagefull "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
+	image-fix) IMGFIX=1 apply_imagefix "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	paste-image) apply_pasteimage "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	paste-rich) apply_pasterich "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	plain-paste) apply_plainpaste "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
