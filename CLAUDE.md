@@ -1064,6 +1064,27 @@ jar'da varsa atlanır.
   (`a9d16d3`) — canlı popup içeriğiyle bytecode string'lerini karşılaştırmak
   kök teşhisi verdi.
 
+## Güncelleme yolu: kur.sh kendini günceller (2026-08)
+
+Kullanıcı şikâyeti "yeni UDE sürümü çıktı ama bende hep 5.4.17" (uygulamayı silip
+yeniden kursa bile). KÖK NEDEN kaynak kodun bayatlaması: `kur.sh` YALNIZ
+`curl | bash` yolunda `git pull` yapıyordu; depoyu bir kez indirip sonra klasörün
+içinden `./kur.sh` çalıştıran kullanıcı ESKİ kodda kalıyordu. Eski kodun iki
+kusuru bunu kalıcılaştırıyordu: (a) indirme önbelleği SÜRÜM-DUYARSIZDI (cached
+`downloads/ude.zip` sonsuza dek yeniden paketleniyordu), (b) link araması
+küçük-harf `uyapdokumaneditoru*.zip` idi — satıcı 5.4.19'da adı
+`UyapDokumanEditoru-AppleSilicon-X.Y.Z.zip` yaptı → eşleşme yok → sessizce
+önbellek. Düzeltme: `self_update()` her çalıştırmada `git pull --ff-only` yapıp
+kendini yeniden çalıştırır (guard `UDE_KUR_SELFUPDATED`; kirli ağaç/uzak dal yoksa
+atlanır), `download()` paketlenen UDE sürümünü BASAR + satıcı uç noktasıyla
+(önek toleranslı) sapmayı uyarır, kur.sh sonunda "Kurulan UDE sürümü: X" yazar.
+Test: `bash tests/kur-selfupdate-test.sh` (yerel sahte origin; ağ/derleme yok;
+`UDE_KUR_SELFUPDATE_ONLY=1` kancasıyla yalnız güncelleme adımı koşar).
+NOT: fix'ten ÖNCEKİ kur.sh'a sahip kullanıcılar bir kez tek-satırlık komutu (ya da
+`git pull`) çalıştırmalı — eski betik kendini güncelleyemez.
+**5.4.20 doğrulandı (2026-08-24):** tam hat (download→merge→20 yama→package→sign)
+sorunsuz; obfuscate hedefler değişmemiş, ⌘C/⌘V canlı probe ile OK.
+
 ## Agent kurulum günlüğü (issue #6 teşhis kanalı)
 
 `MacTextKeys.install()` adımları (native-dialog-keys, shortcuts, option-chars,

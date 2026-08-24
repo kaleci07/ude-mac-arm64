@@ -150,6 +150,8 @@ if [ -z "$SCRIPT_DIR" ] || [ ! -f "$SCRIPT_DIR/scripts/build.sh" ]; then
 	fi
 	ok "Kaynak kod hazır"
 	# İndirilen depodaki kur.sh'yi devral (bu noktadan sonrasını o yürütür).
+	# Güncelleme burada yapıldı → çocuk süreç tekrar denemesin.
+	export UDE_KUR_SELFUPDATED=1
 	if [ "$ARCH_SWITCH" = "1" ]; then reexec_arm64 "$CLONE_DIR/kur.sh" ${1+"$@"}; fi
 	exec bash "$CLONE_DIR/kur.sh" ${1+"$@"}
 fi
@@ -158,6 +160,39 @@ cd "$SCRIPT_DIR"
 
 # Kaynak kod diskte; Rosetta terminalinden geldiysek burada arm64'e geçiyoruz.
 if [ "$ARCH_SWITCH" = "1" ]; then reexec_arm64 "$SCRIPT_DIR/kur.sh" ${1+"$@"}; fi
+
+# ----- Kaynak kodu güncelle (klasörün içinden çalıştırıldığında da) -----
+# Depoyu bir kez indirip sonra hep "./kur.sh" ile çalıştıran kullanıcı, eskiden
+# ESKİ kodda kalıyordu: tek satırlık kurulum komutu güncelliyordu ama klasör içinden
+# çalıştırma güncellemiyordu. Sonuç: satıcı yeni UDE sürümü yayınlasa bile (link adı
+# değişmiş + eski kodun önbelleği sürüm-duyarsız) kullanıcı uygulamayı silip yeniden
+# kursa da ESKİ UDE sürümünde kalıyordu. Artık her çalıştırmada güncellenir.
+# Geliştirici kopyası korunur: yerel değişiklik varsa ya da dal bir uzak dalı
+# izlemiyorsa güncelleme atlanır (yalnız uyarı).
+self_update() {
+	[ "${UDE_KUR_SELFUPDATED:-0}" = "1" ] && return 0
+	command -v git >/dev/null 2>&1 || return 0
+	git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+	local up; up="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+	[ -n "$up" ] || { warn "Kaynak kod güncellenemedi (dal uzak depoyu izlemiyor); mevcut sürümle devam ediliyor."; return 0; }
+	if [ -n "$(git -C "$SCRIPT_DIR" status --porcelain 2>/dev/null)" ]; then
+		warn "Kaynak kodda yerel değişiklikler var; otomatik güncelleme atlandı."
+		return 0
+	fi
+	local before after
+	before="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+	say "Kaynak kod güncelleniyor: $SCRIPT_DIR"
+	git -C "$SCRIPT_DIR" pull --ff-only --quiet || { warn "Güncelleme yapılamadı; mevcut sürümle devam ediliyor."; return 0; }
+	after="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+	if [ "$before" = "$after" ]; then ok "Kaynak kod zaten güncel"; return 0; fi
+	ok "Kaynak kod güncellendi; kurulum güncel betikle yeniden başlatılıyor…"
+	export UDE_KUR_SELFUPDATED=1
+	exec bash "$SCRIPT_DIR/kur.sh" ${1+"$@"}
+}
+step "Kaynak kod güncelliği"
+self_update ${1+"$@"}
+# Sadece güncelleme yolunu sınamak için (tests/kur-selfupdate-test.sh).
+[ "${UDE_KUR_SELFUPDATE_ONLY:-0}" = "1" ] && exit 0
 
 APP_NAME="Uyap Doküman Editörü.app"
 BUILT_APP="$SCRIPT_DIR/build/$APP_NAME"
@@ -208,6 +243,10 @@ fi
 
 # ----- Bitti -----
 printf '\n'
+# Kurulan UDE sürümünü göster: kullanıcı "güncel mi?" sorusunu tek bakışta yanıtlayabilsin
+# (paketin kendi Info.plist'inden gelir, bizim varsayımımızdan değil).
+INSTALLED_VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$DEST_APP/Contents/Info.plist" 2>/dev/null || true)"
+[ -n "$INSTALLED_VER" ] && ok "Kurulan UDE sürümü: ${BOLD}$INSTALLED_VER${RST}"
 ok "${BOLD}BİTTİ.${RST} UDE artık Launchpad ve Applications'ta. .udf dosyalarına çift tıklayarak da açabilirsiniz."
 say "Açmak için: ${BOLD}open \"$DEST_APP\"${RST}"
 printf '\n'

@@ -330,7 +330,19 @@ download() {
 	find "$SRC_APP_DIR" -name '._*' -delete 2>/dev/null || true
 	merge_editor_jars "$SRC_APP_DIR/app"
 	[ -s "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ] || die "editor-app.jar yok."
-	c_ok "Kaynak açıldı."
+	# Hangi UDE sürümünü paketlediğimiz GÖRÜNÜR olsun: "güncelleme gelmiyor, eski
+	# sürümde kalıyorum" tipi durumlar (bayat önbellek / bayat kaynak kod) sessizce
+	# geçmesin. Sürüm satıcı paketinin kendi Info.plist'inden okunur.
+	local pkg_ver; pkg_ver="$(plutil -extract CFBundleVersion raw "$SRC_APP_DIR/app/Contents/Info.plist" 2>/dev/null || true)"
+	[ -n "$pkg_ver" ] && c_ok "Kaynak açıldı (UDE sürümü: $pkg_ver)." || c_ok "Kaynak açıldı."
+	# Satıcının sürüm uç noktası okunabildiyse (yalnız taze indirmede sorulur) sapmayı
+	# bildir. Karşılaştırma ÖNEK toleranslıdır: paket "5.4.20.1", uç nokta "5.4.20"
+	# diyebilir — bu sapma değildir.
+	case "$pkg_ver" in
+		"${lv:-$pkg_ver}"*) ;;
+		*) c_warn "Paketlenen UDE sürümü ($pkg_ver), satıcının bildirdiği güncel sürümden (${lv:-?}) FARKLI."
+		   c_warn "  Önbelleği temizleyip yeniden deneyin:  rm -f \"$UDE_ZIP\"" ;;
+	esac
 }
 
 # 5.4.19'dan itibaren satıcı tek "editor-app.jar"ı yediye böldü (Info.plist
