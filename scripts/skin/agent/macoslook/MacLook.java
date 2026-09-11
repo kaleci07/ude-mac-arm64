@@ -247,8 +247,11 @@ public final class MacLook {
         if (raw == null) return;
         String clean = raw.trim();
         if (clean.isEmpty()) return;
-        int p = clean.lastIndexOf(" (");
-        if (p > 0 && clean.endsWith(")") && clean.indexOf('/', p) > p) {
+        // Yol kuyruğu " (/…)" ile başlar: macOS adlarında '/' olamayacağından " (/"
+        // tek anlamlıdır. lastIndexOf(" (") adında/klasöründe parantez olan yolları
+        // ("Dava (2026)/Tutanak (imzalı).udf") yanlış yerden keser ve başlık hiç temizlenmezdi.
+        int p = clean.indexOf(" (/");
+        if (p > 0 && clean.endsWith(")")) {
             // Kuyruktaki yol başlıktan atılmadan önce saklanır: "İmzaları Birleştir"
             // (macostextkeys.ImzaBirlestir) açık belgenin dosyasını buradan bulur.
             // Temiz başlığın yankısı (setTitle(clean)) yol taşımadığı için değeri silmez.
