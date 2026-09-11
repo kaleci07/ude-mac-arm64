@@ -249,6 +249,11 @@ public final class MacLook {
         if (clean.isEmpty()) return;
         int p = clean.lastIndexOf(" (");
         if (p > 0 && clean.endsWith(")") && clean.indexOf('/', p) > p) {
+            // Kuyruktaki yol başlıktan atılmadan önce saklanır: "İmzaları Birleştir"
+            // (macostextkeys.ImzaBirlestir) açık belgenin dosyasını buradan bulur.
+            // Temiz başlığın yankısı (setTitle(clean)) yol taşımadığı için değeri silmez.
+            f.getRootPane().putClientProperty("macoslook.path",
+                clean.substring(p + 2, clean.length() - 1));
             clean = clean.substring(0, p);
         }
         int d = clean.indexOf(" - ");
