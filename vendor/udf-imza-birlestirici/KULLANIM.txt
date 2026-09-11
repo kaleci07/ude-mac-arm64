@@ -1,0 +1,83 @@
+UDF İMZA BİRLEŞTİRİCİ
+=====================
+
+NE İŞE YARAR
+Aynı belgenin ayrı ayrı e-imzalanmış nüshalarındaki imzaları tek dosyada
+toplar. Son tutanağı taraflara sırayla değil, aynı anda gönderebilirsiniz;
+herkes kendi nüshasını imzalar, bu program imzaları birleştirir.
+
+
+NASIL KULLANILIR
+1. Programı açın.
+2. İmzalanmış nüshaları pencereye sürükleyin ya da tıklayıp seçin
+   (en az iki adet .udf).
+3. "İncele" düğmesine basın.
+4. "Birleştirmeye uygun" yazarsa "Birleştir" düğmesi çıkar; belgeyi
+   kaydedin ve UYAP Doküman Editörü'nde açıp imzaları kontrol edin.
+
+Denetimlerden biri düşerse dosya ÜRETİLMEZ; kırmızı satır sebebini yazar,
+"Ayrıntı" düğmesi ayrıntısını gösterir.
+
+TEK BELGEYİ İNCELEME
+Tek bir .udf eklerseniz düğme "İmzaları göster" olur: belgeyi kimlerin
+imzaladığını ve imzaların geçerli olup olmadığını gösterir, birleştirme
+yapmaz. Bir tutanağın imzalarına bakmak için kullanabilirsiniz.
+
+DENETİM KAYDI
+"Birleştir" düğmesinin altındaki kutu işaretliyse, belgeyi kaydettiğinizde
+yanına bir de "... - denetim kaydi.txt" yazılır. Bu dosya hangi nüshaların
+birleştirildiğini, hangi imzaların alındığını ve belge özetini gösterir;
+sonradan "bu belge nasıl üretildi" sorusuna cevap verir.
+
+Kayıt dosyası TC kimlik numaraları içerir; belgeyi biriyle paylaşırken
+kayıt dosyasını yanında göndermeyin. İstemiyorsanız kutunun işaretini
+kaldırın.
+
+RAPORLAR
+Denetim geçtikten sonra iki rapor düğmesi çıkar:
+  · Denetim raporu — hangi denetimden ne sonuç çıktığı, belge özeti
+  · İmza raporu    — imzacı adları, TC numaraları ve imza zamanları;
+                     belgeye yapıştırmak için sade biçimde
+Her ikisi de "Panoya kopyala" ile kopyalanabilir.
+
+
+ÖNEMLİ
+- Program yeni imza ATMAZ, belge metnine DOKUNMAZ. Yalnız mevcut imzaları
+  tek dosyada toplar.
+- Taraflara mutlaka AYNI dosyanın kopyası gönderilmelidir. Belgeyi yeniden
+  kaydeder veya bir harfini değiştirirseniz nüshalar birleşmez (program bunu
+  yakalar ve durur).
+- Kaynak nüshalarınızı silmeyin; delil olarak saklayın.
+- Belgeler bilgisayarınızdan çıkmaz. Program kendiliğinden internete bağlanmaz.
+
+
+İLK AÇILIŞTA UYARI ÇIKARSA
+Program ücretli bir kod imzalama sertifikasıyla imzalanmadığı için işletim
+sistemi uyarı gösterir:
+
+  Windows : "Ek bilgi" > "Yine de çalıştır"
+  macOS   : Uygulamaya SAĞ TIKLAYIP "Aç" deyin (ilk seferde bir kez)
+
+
+SORUN OLURSA
+Programı komut satırından şu şekilde çalıştırırsanız ayrıntılı çıktı verir:
+
+  Windows : "UDF Imza Birlestirici.exe" --sinama dosya1.udf dosya2.udf
+  macOS   : "UDF Imza Birlestirici.app/Contents/MacOS/UDF Imza Birlestirici" --sinama dosya1.udf dosya2.udf
+
+Dosya vermeden --sinama yazarsanız program kendi bütünlüğünü sınar.
+
+
+------------------------------------------------------------
+UDF İmza Birleştirici · Av. Arb. Mevlana İbrahim Asım Bilir
+av.ibrahimbilir@gmail.com
+
+Ücretsiz kullanılabilir ve dağıtılabilir; satılamaz.
+Ayrıntılı koşullar: LICENSE dosyası.
+
+
+GÜNCELLEME
+"Hakkında" penceresindeki "Güncellemeleri kontrol et" düğmesine bastığınızda
+program yalnızca en son sürüm numarasını sorar; belge veya kişisel veri
+gönderilmez. Yeni sürüm varsa indirme sayfasını açar, kendi başına bir şey
+indirmez veya kurmaz. Bu denetim isteğe bağlıdır; program internetsiz çalışır.

@@ -1,0 +1,17 @@
+UDF İmza Birleştirici — gömülü kaynak
+=====================================
+
+Kaynak   : https://github.com/kaleci07/udf-imza-birlestirici
+           (çatal; üst kaynak https://github.com/miasimbilir/udf-imza-birlestirici)
+Commit   : 7fc31a30d207382b65795433e6c1da680206be26
+Alındı   : 11.09.2026
+Geliştirici: Av. Arb. Mevlana İbrahim Asım Bilir <av.ibrahimbilir@gmail.com>
+
+Dosyalar bu commit'teki hâlleriyle DEĞİŞTİRİLMEDEN kopyalandı (Windows derleme
+betikleri ve .github hariç). Lisans: LICENSE (MIT DEĞİL, özel kullanım koşulları):
+ücretsiz kullanım/dağıtım serbest; satış ve ücretli/ticari yazılıma dahil etme
+yasak; her kopyada LICENSE ve geliştirici bilgisi korunur. UDE derlemesi bunu
+LICENSE ve KULLANIM.txt'yi yardımcı uygulamanın içine koyarak karşılar.
+
+Güncellemek için: yeni commit'in dosyalarını buraya kopyala, Commit satırını
+güncelle, 'bash scripts/build.sh imza' ile --sinama'nın geçtiğini gör.
