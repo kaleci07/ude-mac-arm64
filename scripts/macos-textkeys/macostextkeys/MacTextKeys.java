@@ -107,6 +107,9 @@ public final class MacTextKeys {
         // macOS sistem geneli Metin Değiştirme (Ayarlar → Klavye) kısayollarını
         // UDE metin alanlarında uygula ("mrb " → "Merhaba! ").
         step("text-replace", TextReplace::install);
+        // "İmzaları Birleştir": Araçlar › İmza bandına, gömülü UDF İmza Birleştirici
+        // yardımcısını açık belgeyle başlatan düğme (yardımcı pakette yoksa eklenmez).
+        step("imza-birlestir", ImzaBirlestir::install);
         try {
             Toolkit.getDefaultToolkit().addAWTEventListener(new AWTEventListener() {
                 @Override public void eventDispatched(AWTEvent e) {
