@@ -69,6 +69,8 @@ IMZA="${IMZA:-1}" # 1=açık (varsayılan; UDF İmza Birleştirici yardımcısı
 IMZA_NAME="UDF Imza Birlestirici"   # yardımcı .app adı (ASCII şart, codesign)
 IMZA_PYI_VER="6.22.2"               # PyInstaller (sabit sürüm = tekrarlanabilir derleme)
 IMZA_DND_VER="0.6.3"                # tkinterdnd2 (Finder'dan sürükle-bırak)
+IMZA_REPO="${IMZA_REPO:-miasimbilir/udf-imza-birlestirici}" # yazarın deposu: her derlemede son commit'e bakılır
+IMZA_GUNCELLE="${IMZA_GUNCELLE:-1}" # 1=yazarın deposunda yeni sürüm varsa (lisans aynı + sınamalar geçerse) onu kullan | 0=hep sabit kopya (vendor)
 
 APP_NAME="Uyap Doküman Editörü"     # görünen ad
 APP="$BUILD/$APP_NAME.app"
@@ -445,6 +447,117 @@ imza_python() {  # Tcl/Tk ≥ 8.6 olan ilk Python 3.9+ (macOS sistem Python'u Tk
 	return 1
 }
 
+# Kaynak seçimi (UDE güncellenirken İmza Birleştirici de güncellenir): her derlemede yazarın
+# deposundaki (IMZA_REPO) son commit'e bakılır. Sabit kopyadan (vendor/…/KAYNAK.txt) farklıysa
+# o commit downloads/imza-kaynak/<sha>'ya indirilir. Ağ yoksa, zorunlu dosya eksikse ya da
+# LICENSE değişmişse sabit kopya kullanılır (yeni lisans okunmadan UDE'ye girmesin). Yeni sürüm
+# imza_paketle sınamalarını geçemezse imza() sabit kopyayla yeniden paketler. vendor/ git'te
+# sabit kalır = sınanmış güvenli yedek. IMZA_GUNCELLE=0 bu denetimi kapatır.
+imza_kaynak() {  # stdout: kullanılacak kaynak dizini; bilgi satırları stderr'e
+	local vendor="$IMZA_SRC" sabit son hedef f
+	if [ "$IMZA_GUNCELLE" != "1" ]; then
+		c_info "[imza] IMZA_GUNCELLE=0, sabit kopya kullanılıyor." >&2; echo "$vendor"; return 0
+	fi
+	sabit="$(grep -oE '[0-9a-f]{40}' "$vendor/KAYNAK.txt" 2>/dev/null | head -1)"
+	son="$(curl -fsSL "${CURL_NET[@]}" -m 20 -H 'Accept: application/vnd.github.sha' \
+		"https://api.github.com/repos/$IMZA_REPO/commits/HEAD" 2>/dev/null)" || son=""
+	if ! printf '%s' "$son" | grep -qE '^[0-9a-f]{40}$'; then
+		c_warn "[imza] $IMZA_REPO son sürümü okunamadı (ağ?); sabit kopya ${sabit:0:7} kullanılıyor." >&2
+		echo "$vendor"; return 0
+	fi
+	if [ "$son" = "$sabit" ]; then
+		c_ok "[imza] İmza Birleştirici güncel (${son:0:7})." >&2; echo "$vendor"; return 0
+	fi
+	hedef="$DOWNLOADS/imza-kaynak/$son"
+	if [ ! -f "$hedef/.tamam" ]; then
+		c_info "[imza] Yeni sürüm var: ${sabit:0:7} → ${son:0:7}; indiriliyor…" >&2
+		rm -rf "$hedef"; mkdir -p "$hedef"
+		if ! curl -fsSL "${CURL_NET[@]}" -m 60 "https://codeload.github.com/$IMZA_REPO/tar.gz/$son" \
+			| tar -xz -C "$hedef" --strip-components=1 2>/dev/null; then
+			c_warn "[imza] yeni sürüm indirilemedi; sabit kopya kullanılıyor." >&2
+			rm -rf "$hedef"; echo "$vendor"; return 0
+		fi
+	fi
+	for f in uygulama.py birlestirici.py cms_imza.py imza_dogrula.py udf_ortak.py plist_yaz.py LICENSE KULLANIM.txt ikon/uygulama.icns; do
+		if [ ! -f "$hedef/$f" ]; then
+			c_warn "[imza] ${son:0:7} sürümünde $f yok; sabit kopya kullanılıyor." >&2; echo "$vendor"; return 0
+		fi
+	done
+	if ! cmp -s "$hedef/LICENSE" "$vendor/LICENSE"; then
+		c_warn "[imza] ${son:0:7} sürümünde LICENSE DEĞİŞMİŞ; yeni sürüm KULLANILMADI, önce oku: $hedef/LICENSE" >&2
+		echo "$vendor"; return 0
+	fi
+	if [ ! -f "$hedef/.tamam" ]; then
+		cat > "$hedef/KAYNAK.txt" <<EOF
+UDF İmza Birleştirici — derleme anında indirilen kaynak
+Kaynak     : https://github.com/$IMZA_REPO
+Commit     : $son
+İndirildi  : $(date +%d.%m.%Y)
+Sabit kopya: vendor/udf-imza-birlestirici @ ${sabit:-bilinmiyor}
+Geliştirici: Av. Arb. Mevlana İbrahim Asım Bilir <av.ibrahimbilir@gmail.com>
+
+Dosyalar yazarın deposundaki bu commit'ten DEĞİŞTİRİLMEDEN alındı. LICENSE sabit kopyayla aynı
+(değişseydi bu sürüm kullanılmazdı). Her kopyada LICENSE ve geliştirici bilgisi korunur.
+EOF
+		touch "$hedef/.tamam"
+	fi
+	c_info "[imza] Kullanılacak: ${son:0:7} (değişen: $(cd "$hedef" && for f in *.py KULLANIM.txt; do cmp -s "$f" "$vendor/$f" 2>/dev/null || printf '%s ' "$f"; done))" >&2
+	echo "$hedef"
+}
+
+imza_paketle() {  # $1=python $2=venv $3=kaynak $4=çıktı dizini — başarıda 0; hatayı kendisi yazar
+	local py="$1" venv="$2" s="$3" out="$4" app liste satir gecen hatali tamam
+	rm -rf "$out/dist" "$out/work"; mkdir -p "$out"
+	( cd "$s" && "$venv/bin/pyinstaller" --noconfirm --clean --windowed --log-level WARN \
+		--distpath "$out/dist" --workpath "$out/work" --specpath "$out" \
+		--name "$IMZA_NAME" --icon "$s/ikon/uygulama.icns" --collect-all tkinterdnd2 \
+		--osx-bundle-identifier "$BUNDLE_ID.imzabirlestirici" \
+		--add-data "$s/cms_imza.py:." --add-data "$s/imza_dogrula.py:." \
+		--add-data "$s/udf_ortak.py:." --add-data "$s/birlestirici.py:." \
+		--add-data "$s/LICENSE:." --add-data "$s/KULLANIM.txt:." --add-data "$s/KAYNAK.txt:." \
+		--hidden-import cms_imza --hidden-import imza_dogrula \
+		--hidden-import udf_ortak --hidden-import birlestirici \
+		"$s/uygulama.py" ) >"$out/pyinstaller.log" 2>&1 \
+		|| { c_warn "[imza] PyInstaller başarısız (günlük: $out/pyinstaller.log)."; return 1; }
+	app="$out/dist/$IMZA_NAME.app"
+	# Sürüm + telif (geliştirici adı) Info.plist'e: Finder > Bilgi Al ve Hakkında'da görünür.
+	( cd "$s" && "$venv/bin/python" -B plist_yaz.py "$app/Contents/Info.plist" ) >/dev/null \
+		|| { c_warn "[imza] plist_yaz başarısız."; return 1; }
+	# TUZAK: plist_yaz Info.plist'i PyInstaller'ın ad-hoc imzasından SONRA değiştirir →
+	# imza "invalid Info.plist" olur; yeniden imzalanmazsa dış paketin strict doğrulaması düşer.
+	codesign --force --deep -s - "$app" >/dev/null 2>&1 \
+		&& codesign --verify --strict --deep "$app" >/dev/null 2>&1 \
+		|| { c_warn "[imza] yardımcı imzalanamadı."; return 1; }
+	# Paket GERÇEKTEN çalışıyor mu (modüller, Tk ≥ 8.6, sürükle-bırak)? --windowed paketin
+	# konsolu yok → sonuç rapor dosyasına.
+	rm -f "$out/sinama.txt"
+	"$app/Contents/MacOS/$IMZA_NAME" --sinama --rapor "$out/sinama.txt" >/dev/null 2>&1 || true
+	grep -q "SINAMA TAMAM" "$out/sinama.txt" 2>/dev/null \
+		|| { c_warn "[imza] --sinama geçmedi ($(tail -1 "$out/sinama.txt" 2>/dev/null))."; return 1; }
+	# Gerçek nüsha sınaması (isteğe bağlı ama imza kodu güncellenirken asıl güvence): yerel,
+	# gitignore'daki downloads/imza-sinama-nushalar.txt aynı belgenin ayrı imzalanmış ≥2 nüshasının
+	# yolunu listeler → 8 güvenlik kapısının HEPSİ geçmeli. Rapor imzacı adları taşıdığı için silinir.
+	liste="$DOWNLOADS/imza-sinama-nushalar.txt"
+	if [ -s "$liste" ]; then
+		local nushalar=()
+		while IFS= read -r satir; do [ -f "$satir" ] && nushalar+=("$satir"); done < "$liste"
+		if [ "${#nushalar[@]}" -ge 2 ]; then
+			"$app/Contents/MacOS/$IMZA_NAME" --sinama ${nushalar[@]+"${nushalar[@]}"} --rapor "$out/sinama-nusha.txt" >/dev/null 2>&1 || true
+			gecen="$(grep -c '\[tamam' "$out/sinama-nusha.txt" 2>/dev/null || true)"
+			hatali="$(grep -c '\[hata' "$out/sinama-nusha.txt" 2>/dev/null || true)"
+			tamam="$(grep -c 'SINAMA TAMAM' "$out/sinama-nusha.txt" 2>/dev/null || true)"
+			rm -f "$out/sinama-nusha.txt"
+			if [ "${gecen:-0}" -ne 8 ] || [ "${hatali:-0}" -ne 0 ] || [ "${tamam:-0}" -ne 1 ]; then
+				c_warn "[imza] gerçek nüsha sınaması GEÇMEDİ (${gecen:-0}/8 kapı)."; return 1
+			fi
+			c_ok "[imza] Gerçek nüsha sınaması: 8/8 güvenlik kapısı geçti (${#nushalar[@]} nüsha)."
+		else
+			c_warn "[imza] imza-sinama-nushalar.txt'teki nüshalar diskte yok; gerçek nüsha sınaması atlandı."
+		fi
+	fi
+	return 0
+}
+
 imza() {
 	local out="$BUILD/_imza"
 	rm -rf "$out"
@@ -463,34 +576,19 @@ imza() {
 			|| { c_warn "[imza] PyInstaller kurulamadı (ağ?), atlandı."; rm -rf "$venv"; return 0; }
 		echo "$py $IMZA_PYI_VER $IMZA_DND_VER" > "$venv/.python"
 	fi
-	mkdir -p "$out"
-	local s="$IMZA_SRC"
-	( cd "$s" && "$venv/bin/pyinstaller" --noconfirm --clean --windowed --log-level WARN \
-		--distpath "$out/dist" --workpath "$out/work" --specpath "$out" \
-		--name "$IMZA_NAME" --icon "$s/ikon/uygulama.icns" --collect-all tkinterdnd2 \
-		--osx-bundle-identifier "$BUNDLE_ID.imzabirlestirici" \
-		--add-data "$s/cms_imza.py:." --add-data "$s/imza_dogrula.py:." \
-		--add-data "$s/udf_ortak.py:." --add-data "$s/birlestirici.py:." \
-		--add-data "$s/LICENSE:." --add-data "$s/KULLANIM.txt:." --add-data "$s/KAYNAK.txt:." \
-		--hidden-import cms_imza --hidden-import imza_dogrula \
-		--hidden-import udf_ortak --hidden-import birlestirici \
-		"$s/uygulama.py" ) >"$out/pyinstaller.log" 2>&1 \
-		|| { c_warn "[imza] PyInstaller başarısız (günlük: $out/pyinstaller.log), atlandı."; rm -rf "$out/dist"; return 0; }
-	local app="$out/dist/$IMZA_NAME.app"
-	# Sürüm + telif (geliştirici adı) Info.plist'e: Finder > Bilgi Al ve Hakkında'da görünür.
-	( cd "$s" && "$venv/bin/python" plist_yaz.py "$app/Contents/Info.plist" ) >/dev/null \
-		|| { c_warn "[imza] plist_yaz başarısız, atlandı."; rm -rf "$out/dist"; return 0; }
-	# TUZAK: plist_yaz Info.plist'i PyInstaller'ın ad-hoc imzasından SONRA değiştirir →
-	# imza "invalid Info.plist" olur; yeniden imzalanmazsa dış paketin strict doğrulaması düşer.
-	codesign --force --deep -s - "$app" >/dev/null 2>&1 \
-		&& codesign --verify --strict --deep "$app" >/dev/null 2>&1 \
-		|| { c_warn "[imza] yardımcı imzalanamadı, atlandı."; rm -rf "$out/dist"; return 0; }
-	# Paket GERÇEKTEN çalışıyor mu (modüller, Tk ≥ 8.6, sürükle-bırak)? --windowed paketin
-	# konsolu yok → sonuç rapor dosyasına. Geçmezse yardımcı GÖMÜLMEZ.
-	"$app/Contents/MacOS/$IMZA_NAME" --sinama --rapor "$out/sinama.txt" >/dev/null 2>&1 || true
-	grep -q "SINAMA TAMAM" "$out/sinama.txt" 2>/dev/null \
-		|| { c_warn "[imza] --sinama geçmedi ($(tail -1 "$out/sinama.txt" 2>/dev/null)), yardımcı GÖMÜLMEYECEK."; rm -rf "$out/dist"; return 0; }
-	c_ok "İmza Birleştirici hazır ($(du -sh "$app" | cut -f1)) — $(tail -1 "$out/sinama.txt")"
+	local s; s="$(imza_kaynak)"
+	if ! imza_paketle "$py" "$venv" "$s" "$out"; then
+		if [ "$s" != "$IMZA_SRC" ]; then
+			c_warn "[imza] yeni sürüm sınamayı geçemedi; sabit kopyayla (vendor) yeniden paketleniyor."
+			s="$IMZA_SRC"
+			imza_paketle "$py" "$venv" "$s" "$out" \
+				|| { c_warn "[imza] sabit kopya da geçmedi, yardımcı GÖMÜLMEYECEK."; rm -rf "$out/dist"; return 0; }
+		else
+			c_warn "[imza] yardımcı GÖMÜLMEYECEK."; rm -rf "$out/dist"; return 0
+		fi
+	fi
+	local kaynak; kaynak="$(grep -oE '[0-9a-f]{40}' "$s/KAYNAK.txt" 2>/dev/null | head -1)"
+	c_ok "İmza Birleştirici hazır ($(du -sh "$out/dist/$IMZA_NAME.app" | cut -f1), kaynak ${kaynak:0:7}) — $(tail -1 "$out/sinama.txt")"
 }
 
 apply_icons() {  # $1=JAR — patch_jar içinden çağrılır
@@ -1198,6 +1296,10 @@ Ortam: UDE_ALLOW_ANY_JDK (1=makinedeki her Java 11 kabul edilir; varsayılan 0 �
        IMZA (1=açık varsayılan | 0=kapalı; Araçlar › İmza bandında "İmzaları Birleştir":
                  ayrı e-imzalı UDF nüshalarını tek dosyada birleştiren gömülü yardımcı.
                  Tcl/Tk 8.6+ Python şart — yoksa uyarıyla atlanır; IMZA_PYTHON ile seçilir)
+       IMZA_GUNCELLE (1=açık varsayılan | 0=kapalı; derlemede yazarın deposunda (IMZA_REPO) yeni
+                 sürüm varsa indirilir; lisans aynıysa ve sınamalar geçerse kullanılır, yoksa
+                 vendor/ sabit kopyası. downloads/imza-sinama-nushalar.txt varsa gerçek nüsha
+                 çiftinde 8 güvenlik kapısı da aranır)
 EOF
 }
 

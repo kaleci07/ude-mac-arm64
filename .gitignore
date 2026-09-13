@@ -28,3 +28,6 @@
 
 # fluent ikon SVG cache (yerel)
 /scripts/icons/fluent/cache/
+
+# Python bayt kodu (İmza Birleştirici paketlenirken plist_yaz içe aktarır)
+__pycache__/

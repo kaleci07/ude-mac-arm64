@@ -13,5 +13,8 @@ betikleri ve .github hariç). Lisans: LICENSE (MIT DEĞİL, özel kullanım koş
 yasak; her kopyada LICENSE ve geliştirici bilgisi korunur. UDE derlemesi bunu
 LICENSE ve KULLANIM.txt'yi yardımcı uygulamanın içine koyarak karşılar.
 
-Güncellemek için: yeni commit'in dosyalarını buraya kopyala, Commit satırını
-güncelle, 'bash scripts/build.sh imza' ile --sinama'nın geçtiğini gör.
+Güncelleme KENDİLİĞİNDEN: her derlemede (kur.sh / build.sh all / build.sh imza)
+yazarın deposundaki son commit'e bakılır. Bu kopyadan yeniyse indirilir; lisans
+aynıysa ve sınamalar (--sinama + downloads/imza-sinama-nushalar.txt'deki gerçek
+nüshalarda 8/8 kapı) geçerse o kullanılır, geçmezse bu kopya. Bu kopya git'te sabit
+kalır; kalıcı yükseltmek için dosyaları buraya kopyalayıp Commit satırını güncelle.
