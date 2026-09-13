@@ -1097,6 +1097,69 @@ Test: `tests/AgentLogTest.java` (javac+java elle; başlıkta komutlar).
   ile kur, `panel.paint(g2)` → PNG; gerçek hover animasyonu tam şema değerine gider,
   statik probe ara kare yakalar.
 
+## UDF İmza Birleştirici (IMZA=1, 2026-09) — DURUM: KURULU (13.09.2026)
+
+Aynı belgenin ayrı ayrı e-imzalanmış UDF nüshalarındaki imzaları tek dosyada toplayan
+**UDF İmza Birleştirici** (Av. Arb. Mevlana İbrahim Asım Bilir, `miasimbilir/udf-imza-birlestirici`)
+UDE'ye gömülür. **Lisans MIT DEĞİL:** ücretsiz kullanım/dağıtım serbest; satış ve ücretli/ticari
+yazılıma dahil etme yasak; her kopyada LICENSE + geliştirici bilgisi korunur → LICENSE/KULLANIM/
+KAYNAK yardımcının Resources'ına girer, düğmenin RichTooltip'i geliştirici adını gösterir.
+Java'ya TAŞINMADI: imza doğrulamasını (kendi ASN.1/CMS, RSA/ECDSA, 8 güvenlik kapısı) yeniden
+yazmak hem risk hem lisansın "türetilmiş sürüm" alanı → ayrı süreç olarak gömülür.
+
+### Mimari
+- **Kaynak:** `vendor/udf-imza-birlestirici/` (upstream `7fc31a3`, değiştirilmeden; köken `KAYNAK.txt`).
+- **Derleme:** `build.sh imza` (`all`'da `lookagent`'tan sonra) → `imza_python` (Tk ≥ 8.6; macOS
+  sistem Python'u Tk 8.5 → pencere BOŞ) → `downloads/imza-venv` (`pyinstaller==6.22.2`,
+  `tkinterdnd2==0.6.3`) → `imza_kaynak` → `imza_paketle` → `package()` `Contents/Helpers/UDF Imza
+  Birlestirici.app`'e `ditto` → `sign()` içten dışa. Her eksiklikte "[imza] … atlandı" uyarısı; UDE
+  yine derlenir, düğme görünmez.
+- **Otomatik güncelleme (`imza_kaynak`):** her derlemede yazarın deposunun son commit'ine bakılır
+  (kaleci07 forku kendiliğinden güncellenmez). Sabit kopyadan farklıysa `downloads/imza-kaynak/<sha>`'ya
+  iner. Ağ yoksa, zorunlu dosya eksikse ya da **LICENSE değişmişse** sabit kopya. Yeni sürüm
+  `imza_paketle` sınamalarını geçmezse sabit kopyayla yeniden paketlenir. `IMZA_GUNCELLE=0` kapatır.
+- **Sınamalar (`imza_paketle`):** `--sinama` (modüller, Tk, sürükle-bırak) + `downloads/imza-sinama-nushalar.txt`
+  (gitignore; aynı belgenin ayrı imzalı ≥2 nüshasının YEREL yolu) varsa gerçek nüshalarda 8/8 kapı.
+  Nüsha raporu imzacı adı taşıdığı için kontrolden sonra silinir.
+- **Düğme:** `macostextkeys.ImzaBirlestir` (`MacTextKeys.install()` → `step("imza-birlestir")`).
+  Yardımcı YOKSA eklenmez. Yer **Araçlar › İmza** bandı (MEDIUM; yedek: "İmzala" düğmesinin bandı).
+  Tıklama `/usr/bin/open -n -a <yardımcı> --args <belge>`. Tamamı yansıma; vektör ikon `Proxy`
+  ResizableIcon; `setToolTipText` YOK (Flamingo UOE) → RichTooltip.
+- **Belge yolu:** MacLook `applyTitle` kuyruğu silmeden `macoslook.path`'e koyar; ayırıcı
+  `indexOf(" (/")` (`lastIndexOf(" (")` parantezli klasörde bozuluyordu). `~/.uki/` = kaydedilmemiş
+  yeni belge → yol verilmez.
+- Testler: `tests/ImzaBirlestirTest.java` (yol ayrıştırma/süzgeç/yardımcı), `bash tests/imza-kaynak-test.sh`
+  (ağ gerekir; güncel / yeni sürüm / önbellek / lisans değişti / depo yok / IMZA_GUNCELLE=0).
+
+### Canlı keşif (5.4.21)
+- Ham başlık `Doküman Editörü v5.4.21 - ad.udf (/tam/yol/ad.udf)`, başta ~100 boşluk.
+- Şerit Araçlar görevi: Kısayol, Açıklamalar, **İmza** [İmzala, Dokümanı Mobil İmzala, İmzalar,
+  Sertifikalar, İmza Kütüphanesi, APDU Etkin], Araçlar, Güncelle. MEDIUM metinleri iki boşlukla başlar.
+- UDE'nin imza doğrulayıcısı `tr.com.havelsan.uyap.system.pki.EI.Ma3SignValidation` (TÜBİTAK ESYA).
+  İmzalar paneli (`pki.a.H`) `Ma3SignValidation.a().a(new SignableByteArray(content.xml), sign.sgn,
+  harici içerik=true, P_TRUST_SIGNINGTIMEATTR)` çağırır. Aynı imza + dönüş türü farklı `a` metotları
+  var → javac değil yansıma (dönüş türüyle seç). ESYA lisansı jar'daki `…/common/pki/license.xml`
+  (`LicenseUtil.setLicenseXml`). GUI açmadan doğrulama bununla yapılabilir.
+- `WPAppManager`'daki "Belge Zaten Açık" tek-örnek kilidi DEĞİL; aynı belgenin gölge dosyası uyarısı.
+- Günlük `~/.uki/logs/editor.log`: açılış "Launching Base Window", düzgün kapanış "Could not removed
+  the backup"; `tercihler.xml` kapanışta yazılır.
+
+### Doğrulama (13.09.2026)
+- Derleme temiz; yardımcı 31 MB, dış paket + yardımcı ad-hoc strict geçerli.
+- Mert'in diskindeki gerçek aynı metinli/farklı imzalı çift: birleştirici 8/8 kapı; kaydedilen dosya
+  OpenSSL `cms -verify` (asıl nüshalar kontrol olarak da) ve UDE `Ma3SignValidation` ile
+  **ALL_VALID**. Diskteki 7.619 UDF'de birleşince imza SAYISI ARTAN çift yok; yeni imzacı ekleyen
+  birleştirme gerçek dosyayla sınanamadı.
+- Otomatik güncelleme uçtan uca: yeni sürüm → indir + 8/8 + yeni commit gömüldü; bozuk sürüm →
+  `--sinama` yakaladı, sabit kopyayla yeniden paketlendi.
+
+### Tuzaklar
+- `plist_yaz.py` Info.plist'i PyInstaller'ın ad-hoc imzasından SONRA değiştirir → yeniden imzala.
+- **Terminalden `…/MacOS/UyapDokumanEditoru` açılınca pencere GÖRÜNMEZ:** uygulama etkinleşmez,
+  pencere doğru yerde ama `kCGWindowIsOnscreen=false`. `NSRunningApplication.activate()` (ya da
+  Dock simgesi / ⌘⇥) sonrası görünür. Probe'daki `isShowing=true` ekranda göründüğü anlamına GELMEZ.
+  Kullanıcı sınaması için bunu söyle ya da Dock'tan açtır.
+
 ## Genel Javassist/build tuzakları
 
 - `insertBefore/setBody/replace` string'lerinde `//` yorum YASAK (newline yok, gövde
