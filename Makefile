@@ -3,7 +3,7 @@
 
 SH := bash scripts/build.sh
 
-.PHONY: all check-deps jdk jpackage-jdk download deps shim zoom patch package sign dmg clean distclean help
+.PHONY: all check-deps jdk jpackage-jdk download deps shim zoom imza patch package sign dmg clean distclean help
 
 all: ## ARM64 .app'i üret (varsayılan)
 	@$(SH) all
@@ -28,6 +28,9 @@ shim: ## eawt-shim derle (Java 11 com.apple.eawt yerine)
 
 zoom: ## macOS trackpad zoom javaagent derle (Cmd+iki parmak)
 	@$(SH) zoom
+
+imza: ## UDF İmza Birleştirici yardımcısını paketle (Tk 8.6+ Python)
+	@$(SH) imza
 
 patch: ## editor-app.jar yamala (sqlite swap + eawt çıkar)
 	@$(SH) patch

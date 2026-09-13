@@ -48,6 +48,7 @@ ANTET_SRC="$SCRIPT_DIR/antet" # Antetlerim: arka plan diyaloğunda kişisel ante
 CARET_SRC="$SCRIPT_DIR/macos-caret"     # metin imleci temiz 1px çizim yaması
 PDFFRESH_SRC="$SCRIPT_DIR/macos-pdffresh" # PDF dışa aktarımı canlı belgeden taze serialize (bayat önbellek düzeltmesi)
 LINESPACING_SRC="$SCRIPT_DIR/macos-linespacing" # native satır aralığı menüsüne 1.5 ekleyen yama
+IMZA_SRC="$VENDOR/udf-imza-birlestirici" # UDF İmza Birleştirici (© Av. Arb. Mevlana İbrahim Asım Bilir; vendor/…/KAYNAK.txt)
 FOP_SUP="/System/Library/Fonts/Supplemental"   # macOS Arial/Times New Roman (tam Unicode)
 ICONS="${ICONS:-1}"           # 1=açık (varsayılan; modern ikon override + HiDPI yükleyici yaması) | 0=kapalı
 FOPFONTS="${FOPFONTS:-1}"     # 1=açık (varsayılan; PDF Türkçe harf düzeltmesi) | 0=kapalı
@@ -64,6 +65,10 @@ PLAINPASTE="${PLAINPASTE:-1}" # 1=açık (varsayılan; Formatsız Yapıştır �
 CARETFIX="${CARETFIX:-1}" # 1=açık (varsayılan; metin imleci temiz 1px çizim, harf gövdesine binmez) | 0=kapalı
 PDFFRESH="${PDFFRESH:-1}" # 1=açık (varsayılan; "PDF Olarak Kaydet" canlı belgeden taze serialize — "önce Kaydet" gereksinimi kalkar) | 0=kapalı
 LINESPACING="${LINESPACING:-1}" # 1=açık (varsayılan; Giriş>Paragraf satır aralığı menüsüne 1.5 eklenir — satıcı unutmuş) | 0=kapalı
+IMZA="${IMZA:-1}" # 1=açık (varsayılan; UDF İmza Birleştirici yardımcısı + Araçlar › İmza "İmzaları Birleştir" düğmesi; Tk 8.6+ Python yoksa uyarıyla atlanır) | 0=kapalı
+IMZA_NAME="UDF Imza Birlestirici"   # yardımcı .app adı (ASCII şart, codesign)
+IMZA_PYI_VER="6.22.2"               # PyInstaller (sabit sürüm = tekrarlanabilir derleme)
+IMZA_DND_VER="0.6.3"                # tkinterdnd2 (Finder'dan sürükle-bırak)
 
 APP_NAME="Uyap Doküman Editörü"     # görünen ad
 APP="$BUILD/$APP_NAME.app"
@@ -419,6 +424,73 @@ lookagent() {  # SKIN=1 görünüm agent'ı: bütünleşik başlık çubuğu + d
 	"$jc" --release 11 -d "$BUILD/_lookagent" "$SKIN_SRC/agent/macoslook/MacLook.java" \
 		|| die "macoslook derlenemedi."
 	c_ok "macoslook derlendi."
+}
+
+# UDF İmza Birleştirici: aynı belgenin ayrı e-imzalı UDF nüshalarındaki imzaları tek
+# dosyada toplar (vendor/udf-imza-birlestirici — saf Python, kendi CMS/RSA/ECDSA doğrulaması,
+# 8 güvenlik kapısı). Lisans MIT DEĞİL: ücretsiz dağıtım serbest, satış/ticari yazılıma dahil
+# etme yasak, LICENSE + geliştirici bilgisi her kopyada korunur → LICENSE/KULLANIM/KAYNAK
+# yardımcının Resources'ına girer. PyInstaller ile bağımsız .app'e dönüştürülür; package()
+# onu Contents/Helpers'a koyar, agent (macostextkeys.ImzaBirlestir) yardımcı VARSA şerit
+# düğmesi ekler. Tk ≥ 8.6'lı Python yoksa / ağ yoksa / --sinama geçmezse UYARI ile ATLANIR —
+# UDE yine derlenir, düğme görünmez (sessiz değil: "[imza] … atlandı" satırına bak).
+imza_python() {  # Tcl/Tk ≥ 8.6 olan ilk Python 3.9+ (macOS sistem Python'u Tk 8.5 → pencere BOŞ çizilir)
+	local c v
+	for c in ${IMZA_PYTHON:-} /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3 \
+		/usr/local/bin/python3 /Library/Frameworks/Python.framework/Versions/3.*/bin/python3; do
+		[ -x "$c" ] || continue
+		v="$("$c" -c 'import sys,tkinter;print(tkinter.TkVersion if sys.version_info>=(3,9) else 0)' 2>/dev/null)" || continue
+		awk -v v="$v" 'BEGIN{exit !(v>=8.6)}' && { echo "$c"; return 0; }
+	done
+	return 1
+}
+
+imza() {
+	local out="$BUILD/_imza"
+	rm -rf "$out"
+	[ "$IMZA" = "1" ] || { c_info "[imza] IMZA=0, atlandı."; return 0; }
+	[ -f "$IMZA_SRC/uygulama.py" ] || { c_warn "[imza] kaynak yok ($IMZA_SRC), atlandı."; return 0; }
+	local py; py="$(imza_python)" \
+		|| { c_warn "[imza] Tcl/Tk 8.6+ olan Python yok (brew install python-tk@3.14), İmza Birleştirici atlandı."; return 0; }
+	c_info "UDF İmza Birleştirici paketleniyor ($("$py" -c 'import sys,tkinter;print("Python %d.%d, Tk %s" % (sys.version_info[0], sys.version_info[1], tkinter.TkVersion))'))…"
+	# PyInstaller ortamı indirilenlerle birlikte önbelleklenir (clean silmez, distclean siler).
+	local venv="$DOWNLOADS/imza-venv"
+	if [ ! -x "$venv/bin/pyinstaller" ] || [ "$(cat "$venv/.python" 2>/dev/null)" != "$py $IMZA_PYI_VER $IMZA_DND_VER" ]; then
+		rm -rf "$venv"
+		"$py" -m venv "$venv" || { c_warn "[imza] sanal ortam kurulamadı, atlandı."; return 0; }
+		"$venv/bin/pip" install -q --upgrade pip >/dev/null 2>&1 || true
+		"$venv/bin/pip" install -q "pyinstaller==$IMZA_PYI_VER" "tkinterdnd2==$IMZA_DND_VER" \
+			|| { c_warn "[imza] PyInstaller kurulamadı (ağ?), atlandı."; rm -rf "$venv"; return 0; }
+		echo "$py $IMZA_PYI_VER $IMZA_DND_VER" > "$venv/.python"
+	fi
+	mkdir -p "$out"
+	local s="$IMZA_SRC"
+	( cd "$s" && "$venv/bin/pyinstaller" --noconfirm --clean --windowed --log-level WARN \
+		--distpath "$out/dist" --workpath "$out/work" --specpath "$out" \
+		--name "$IMZA_NAME" --icon "$s/ikon/uygulama.icns" --collect-all tkinterdnd2 \
+		--osx-bundle-identifier "$BUNDLE_ID.imzabirlestirici" \
+		--add-data "$s/cms_imza.py:." --add-data "$s/imza_dogrula.py:." \
+		--add-data "$s/udf_ortak.py:." --add-data "$s/birlestirici.py:." \
+		--add-data "$s/LICENSE:." --add-data "$s/KULLANIM.txt:." --add-data "$s/KAYNAK.txt:." \
+		--hidden-import cms_imza --hidden-import imza_dogrula \
+		--hidden-import udf_ortak --hidden-import birlestirici \
+		"$s/uygulama.py" ) >"$out/pyinstaller.log" 2>&1 \
+		|| { c_warn "[imza] PyInstaller başarısız (günlük: $out/pyinstaller.log), atlandı."; rm -rf "$out/dist"; return 0; }
+	local app="$out/dist/$IMZA_NAME.app"
+	# Sürüm + telif (geliştirici adı) Info.plist'e: Finder > Bilgi Al ve Hakkında'da görünür.
+	( cd "$s" && "$venv/bin/python" plist_yaz.py "$app/Contents/Info.plist" ) >/dev/null \
+		|| { c_warn "[imza] plist_yaz başarısız, atlandı."; rm -rf "$out/dist"; return 0; }
+	# TUZAK: plist_yaz Info.plist'i PyInstaller'ın ad-hoc imzasından SONRA değiştirir →
+	# imza "invalid Info.plist" olur; yeniden imzalanmazsa dış paketin strict doğrulaması düşer.
+	codesign --force --deep -s - "$app" >/dev/null 2>&1 \
+		&& codesign --verify --strict --deep "$app" >/dev/null 2>&1 \
+		|| { c_warn "[imza] yardımcı imzalanamadı, atlandı."; rm -rf "$out/dist"; return 0; }
+	# Paket GERÇEKTEN çalışıyor mu (modüller, Tk ≥ 8.6, sürükle-bırak)? --windowed paketin
+	# konsolu yok → sonuç rapor dosyasına. Geçmezse yardımcı GÖMÜLMEZ.
+	"$app/Contents/MacOS/$IMZA_NAME" --sinama --rapor "$out/sinama.txt" >/dev/null 2>&1 || true
+	grep -q "SINAMA TAMAM" "$out/sinama.txt" 2>/dev/null \
+		|| { c_warn "[imza] --sinama geçmedi ($(tail -1 "$out/sinama.txt" 2>/dev/null)), yardımcı GÖMÜLMEYECEK."; rm -rf "$out/dist"; return 0; }
+	c_ok "İmza Birleştirici hazır ($(du -sh "$app" | cut -f1)) — $(tail -1 "$out/sinama.txt")"
 }
 
 apply_icons() {  # $1=JAR — patch_jar içinden çağrılır
@@ -1019,6 +1091,15 @@ package() {
 		'{"JAVA_TOOL_OPTIONS":"-Dsun.security.smartcardio.library=/System/Library/Frameworks/PCSC.framework/Versions/A/PCSC"}' \
 		"$plist" 2>/dev/null || c_warn "LSEnvironment eklenemedi (plutil -json desteklemiyor?)"
 	mv "$BUILD/$ASCII_NAME.app" "$APP"
+	# UDF İmza Birleştirici yardımcısı (imza() ürettiyse) → Contents/Helpers. Agent şerit
+	# düğmesi bu yolu arar; yardımcı yoksa düğme hiç eklenmez.
+	if [ "$IMZA" = "1" ] && [ -d "$BUILD/_imza/dist/$IMZA_NAME.app" ]; then
+		mkdir -p "$APP/Contents/Helpers"
+		ditto "$BUILD/_imza/dist/$IMZA_NAME.app" "$APP/Contents/Helpers/$IMZA_NAME.app"
+		c_ok "İmza Birleştirici gömüldü: Contents/Helpers/$IMZA_NAME.app"
+	else
+		c_info "[imza] yardımcı yok (IMZA=$IMZA), gömülmedi — İmzaları Birleştir düğmesi görünmeyecek."
+	fi
 	c_ok "Paketlendi: $APP ($(du -sh "$APP" | cut -f1))"
 }
 
@@ -1026,6 +1107,11 @@ sign() {
 	[ -d "$APP" ] || die "Önce 'package' çalıştır."
 	c_info "ad-hoc imzalanıyor…"
 	find "$APP" -name '._*' -delete 2>/dev/null || true
+	# İçten dışa: gömülü yardımcı (ayrı bundle) dış paketten ÖNCE imzalanır.
+	local helper="$APP/Contents/Helpers/$IMZA_NAME.app"
+	if [ -d "$helper" ]; then
+		codesign --force --deep -s - "$helper" || die "İmza Birleştirici yardımcısı imzalanamadı."
+	fi
 	codesign --force -s - --identifier "$BUNDLE_ID" "$APP"
 	codesign --verify --strict "$APP" 2>/dev/null && c_ok "İmza geçerli (adhoc, strict)" || die "İmza doğrulanamadı."
 }
@@ -1059,7 +1145,7 @@ dmg() {
 
 all() {
 	check_deps || die "Ön koşul eksik (jdk / jpackage-jdk)."
-	download; deps; shim; textkeys; zoom; lookagent; patch_jar; package; sign
+	download; deps; shim; textkeys; zoom; lookagent; imza; patch_jar; package; sign
 	echo
 	c_ok "BİTTİ → $APP"
 	c_info "Çalıştır: open \"$APP\"   |   Kur: /Applications'a sürükle (çift-tık ile .udf açılır, Retina'da keskin)"
@@ -1083,6 +1169,7 @@ Hedefler:
   shim         eawt-shim derle
   textkeys     macOS metin kısayolları javaagent'ını derle (Option+Delete vb.)
   zoom         macOS trackpad zoom javaagent'ını derle (Cmd+iki parmak)
+  imza         UDF İmza Birleştirici yardımcısını PyInstaller ile paketle (Tk 8.6+ Python)
   patch        editor-app.jar yamala (sqlite swap + eawt çıkar + native dosya pencereleri)
   package      jpackage ile .app üret (Java 11 + shim, .udf ilişkilendirmeli)
   sign         ad-hoc codesign
@@ -1108,6 +1195,9 @@ Ortam: UDE_ALLOW_ANY_JDK (1=makinedeki her Java 11 kabul edilir; varsayılan 0 �
                  etkinleşir, "yeniden başlat" diyaloğu kalkar)
        ANTET (1=açık varsayılan | 0=kapalı; Arka Plan diyaloğunda Antetlerim
                  bölümü: kişisel antetler tek tıkla + sayfaya sığdırma)
+       IMZA (1=açık varsayılan | 0=kapalı; Araçlar › İmza bandında "İmzaları Birleştir":
+                 ayrı e-imzalı UDF nüshalarını tek dosyada birleştiren gömülü yardımcı.
+                 Tcl/Tk 8.6+ Python şart — yoksa uyarıyla atlanır; IMZA_PYTHON ile seçilir)
 EOF
 }
 
@@ -1117,7 +1207,7 @@ if [ "${UDE_BUILD_LIB:-0}" = "1" ]; then return 0; fi
 
 case "${1:-all}" in
 	all) all ;; check-deps) check_deps ;; jdk) jdk ;; jpackage-jdk) jpackage_jdk ;;
-	download) download ;; deps) deps ;; icon-deps) icon_deps ;; shim) shim ;; textkeys) textkeys ;; zoom) zoom ;; lookagent) lookagent ;; patch) patch_jar ;;
+	download) download ;; deps) deps ;; icon-deps) icon_deps ;; shim) shim ;; textkeys) textkeys ;; zoom) zoom ;; lookagent) lookagent ;; imza) imza ;; patch) patch_jar ;;
 	fop-fonts) apply_fop_fonts "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	caret-fix) CARETFIX=1 apply_caretfix "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	pdf-fresh) PDFFRESH=1 apply_pdffresh "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
