@@ -312,6 +312,13 @@ Resmî paket x86_64. Native arm64 için:
 - **jpackage'lı 17+ JDK** (jpackage + shim derlemesi) — yoksa `make jpackage-jdk` Azul Zulu 21'i kurar
 - `curl`, `unzip`, `zip`, `codesign`, `plutil` (macOS'ta hazır gelir)
 
+> **Güncelleme:** Yeni bir UDE sürümü çıktığında kurulum komutunu (ya da klasörün
+> içinden `./kur.sh`) yeniden çalıştırmanız yeterlidir; betik önce kendi kaynak
+> kodunu günceller, sonra satıcının güncel paketini indirir ve kurulan sürümü
+> ekrana yazar. Klasörde kendi değişiklikleriniz varsa otomatik güncelleme
+> atlanır (uyarı verilir). Kurulumunuz çok eskiyse ve güncelleme gelmiyorsa
+> temiz kurulum: `rm -rf ~/ude-mac-arm64` + kurulum komutu.
+
 > Build, host mimarisi için derler: Apple Silicon'da arm64, Intel'de x86_64 (çapraz
 > derleme yapılmaz; gömülecek Java ve jpackage host mimarisiyle eşleşir).
 

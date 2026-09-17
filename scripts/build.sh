@@ -49,6 +49,7 @@ CARET_SRC="$SCRIPT_DIR/macos-caret"     # metin imleci temiz 1px çizim yaması
 PDFFRESH_SRC="$SCRIPT_DIR/macos-pdffresh" # PDF dışa aktarımı canlı belgeden taze serialize (bayat önbellek düzeltmesi)
 LINESPACING_SRC="$SCRIPT_DIR/macos-linespacing" # native satır aralığı menüsüne 1.5 ekleyen yama
 IMZA_SRC="$VENDOR/udf-imza-birlestirici" # UDF İmza Birleştirici (© Av. Arb. Mevlana İbrahim Asım Bilir; vendor/…/KAYNAK.txt)
+IMGFIX_SRC="$SCRIPT_DIR/macos-imagefix" # okunamayan görselde uyarı + eklenen görseli sayfaya sığdırma
 FOP_SUP="/System/Library/Fonts/Supplemental"   # macOS Arial/Times New Roman (tam Unicode)
 ICONS="${ICONS:-1}"           # 1=açık (varsayılan; modern ikon override + HiDPI yükleyici yaması) | 0=kapalı
 FOPFONTS="${FOPFONTS:-1}"     # 1=açık (varsayılan; PDF Türkçe harf düzeltmesi) | 0=kapalı
@@ -71,6 +72,7 @@ IMZA_PYI_VER="6.22.2"               # PyInstaller (sabit sürüm = tekrarlanabil
 IMZA_DND_VER="0.6.3"                # tkinterdnd2 (Finder'dan sürükle-bırak)
 IMZA_REPO="${IMZA_REPO:-miasimbilir/udf-imza-birlestirici}" # yazarın deposu: her derlemede son commit'e bakılır
 IMZA_GUNCELLE="${IMZA_GUNCELLE:-1}" # 1=yazarın deposunda yeni sürüm varsa (lisans aynı + sınamalar geçerse) onu kullan | 0=hep sabit kopya (vendor)
+IMGFIX="${IMGFIX:-1}" # 1=açık (varsayılan; okunamayan görselde Türkçe uyarı + eklenen görsel sayfaya sığar) | 0=kapalı
 
 APP_NAME="Uyap Doküman Editörü"     # görünen ad
 APP="$BUILD/$APP_NAME.app"
@@ -337,7 +339,19 @@ download() {
 	find "$SRC_APP_DIR" -name '._*' -delete 2>/dev/null || true
 	merge_editor_jars "$SRC_APP_DIR/app"
 	[ -s "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ] || die "editor-app.jar yok."
-	c_ok "Kaynak açıldı."
+	# Hangi UDE sürümünü paketlediğimiz GÖRÜNÜR olsun: "güncelleme gelmiyor, eski
+	# sürümde kalıyorum" tipi durumlar (bayat önbellek / bayat kaynak kod) sessizce
+	# geçmesin. Sürüm satıcı paketinin kendi Info.plist'inden okunur.
+	local pkg_ver; pkg_ver="$(plutil -extract CFBundleVersion raw "$SRC_APP_DIR/app/Contents/Info.plist" 2>/dev/null || true)"
+	[ -n "$pkg_ver" ] && c_ok "Kaynak açıldı (UDE sürümü: $pkg_ver)." || c_ok "Kaynak açıldı."
+	# Satıcının sürüm uç noktası okunabildiyse (yalnız taze indirmede sorulur) sapmayı
+	# bildir. Karşılaştırma ÖNEK toleranslıdır: paket "5.4.20.1", uç nokta "5.4.20"
+	# diyebilir — bu sapma değildir.
+	case "$pkg_ver" in
+		"${lv:-$pkg_ver}"*) ;;
+		*) c_warn "Paketlenen UDE sürümü ($pkg_ver), satıcının bildirdiği güncel sürümden (${lv:-?}) FARKLI."
+		   c_warn "  Önbelleği temizleyip yeniden deneyin:  rm -f \"$UDE_ZIP\"" ;;
+	esac
 }
 
 # 5.4.19'dan itibaren satıcı tek "editor-app.jar"ı yediye böldü (Info.plist
@@ -404,7 +418,12 @@ textkeys() {
 	# Panel AWT'nin dışında → Java'dan çözülemez; agent bu dylib'i System.load eder.
 	c_info "native diyalog kısayolları dylib'i derleniyor (NSSavePanel Cmd+V)…"
 	command -v clang >/dev/null 2>&1 || die "clang yok (xcode-select --install)."
-	clang -dynamiclib -framework Cocoa -o "$BUILD/_textkeys/libnativedialogkeys.dylib" \
+	# SDK, seçili araç setinin (xcode-select) KENDİ SDK'sı olmalı: clang varsayılan olarak
+	# diskteki EN YENİ SDK'yı seçiyor (ör. güncel CLT'nin macOS 27 SDK'sı); Xcode'un daha
+	# eski linker'ı o SDK'nın tbd hedeflerini (arm64e.x1) tanımayıp "unknown architecture"
+	# ile düşüyor (CLT/Xcode sürüm kayması, 2026-09). xcrun --sdk macosx eşleşen SDK'yı verir.
+	local sdk; sdk="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"
+	clang -dynamiclib ${sdk:+-isysroot "$sdk"} -framework Cocoa -o "$BUILD/_textkeys/libnativedialogkeys.dylib" \
 		"$TEXTKEYS_SRC/native/NativeDialogKeys.m" || die "NativeDialogKeys derlenemedi."
 	c_ok "libnativedialogkeys.dylib derlendi"
 }
@@ -797,6 +816,39 @@ apply_imagefull() {  # $1=JAR — patch_jar içinden çağrılır
 	c_ok "[imagefull] tam-çözünürlük yaması uygulandı."
 }
 
+apply_imagefix() {  # $1=JAR — patch_jar içinden çağrılır (apply_imagefull'DAN SONRA)
+	local JAR="$1"
+	[ "$IMGFIX" = "1" ] || return 0
+	# İdempotans: helper zaten enjekte edilmişse atla (grep -q DEĞİL — SIGPIPE/pipefail tuzağı).
+	if unzip -l "$JAR" 2>/dev/null | grep 'macosimgfix/ImageFit.class' >/dev/null 2>&1; then
+		c_ok "[imagefix] zaten yamalı, atlandı."; return 0
+	fi
+	c_info "[imagefix] okunamayan görselde uyarı + eklenen görseli sayfaya sığdırma yaması…"
+	local jr jc jvs
+	jr="$(java17)"  || { c_warn "[imagefix] 17+ java yok, yama atlandı."; return 0; }
+	jc="$(javac17)" || { c_warn "[imagefix] 17+ javac yok, yama atlandı."; return 0; }
+	jvs="$(icon_deps)"   # Javassist (diğer yamalarla ortak)
+	# 1) helper'ları derle + jar'a enjekte et (patcher'dan ÖNCE; Javassist köprü
+	#    ifadeleri macosimgfix.* sınıflarını jar classpath'inden çözer)
+	rm -rf "$BUILD/_imgfixhelper"; mkdir -p "$BUILD/_imgfixhelper"
+	"$jc" --release 11 -encoding UTF-8 -d "$BUILD/_imgfixhelper" \
+		"$IMGFIX_SRC/macosimgfix/ImageFit.java" "$IMGFIX_SRC/macosimgfix/ImageLoad.java" \
+		|| { c_warn "[imagefix] helper'lar derlenemedi; yama atlandı."; return 0; }
+	( cd "$BUILD/_imgfixhelper" && zip -q -r "$JAR" macosimgfix )
+	# 2) patcher'ı derle + çalıştır + çıktıyı jar'a enjekte et
+	rm -rf "$BUILD/_imgfixpatch"; mkdir -p "$BUILD/_imgfixpatch/out"
+	"$jc" --release 11 -encoding UTF-8 -cp "$jvs" -d "$BUILD/_imgfixpatch" "$IMGFIX_SRC/ImageFixPatch.java" \
+		|| { c_warn "[imagefix] ImageFixPatch derlenemedi; yama atlandı."; return 0; }
+	if ! "$jr" -cp "$BUILD/_imgfixpatch:$jvs" ImageFixPatch "$JAR" "$BUILD/_imgfixpatch/out"; then
+		# Yarım-yama bırakma: helper'ı geri çıkar ki idempotans kontrolü yanılmasın.
+		zip -q -d "$JAR" 'macosimgfix/*' >/dev/null 2>&1 || true
+		c_warn "[imagefix] yama uygulanamadı (UDE sürümü değişmiş olabilir); yama geri alındı."
+		return 0
+	fi
+	( cd "$BUILD/_imgfixpatch/out" && zip -q -r "$JAR" tr )
+	c_ok "[imagefix] görsel ekleme yaması uygulandı."
+}
+
 apply_pasteimage() {  # $1=JAR — patch_jar içinden çağrılır
 	local JAR="$1"
 	[ "$PASTEIMG" = "1" ] || return 0
@@ -1078,6 +1130,7 @@ patch_jar() {
 	apply_pdffresh "$JAR"
 	apply_linespacing "$JAR"
 	apply_imagefull "$JAR"
+	apply_imagefix "$JAR"
 	apply_pasteimage "$JAR"
 	apply_pasterich "$JAR"
 	apply_plainpaste "$JAR"
@@ -1286,6 +1339,9 @@ Ortam: UDE_ALLOW_ANY_JDK (1=makinedeki her Java 11 kabul edilir; varsayılan 0 �
                  pano imajının Retina tipi BufferedImage cast'ini kırıyordu)
        IMGRESIZE (1=açık varsayılan | 0=kapalı; satır-içi imajı köşe
                  tutamaçlarıyla fare ile boyutlandırma — Word benzeri)
+       IMGFIX (1=açık varsayılan | 0=kapalı; okunamayan görselde — HEIC/WEBP,
+                 bozuk dosya — sessiz başarısızlık yerine Türkçe uyarı, ayrıca
+                 eklenen görselin görünen boyutu sayfaya sığdırılır)
        SKIN (1=açık varsayılan | 0=kapalı; modern düz Substance skin + Flamingo
                  şerit + font + nötr kanvas; macOS koyu görünümde koyu tema)
        LIVETOGGLE (1=açık varsayılan | 0=kapalı; Otomatik Büyük Harf / Baş
@@ -1315,6 +1371,7 @@ case "${1:-all}" in
 	pdf-fresh) PDFFRESH=1 apply_pdffresh "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	line-spacing) LINESPACING=1 apply_linespacing "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	image-full) IMGFULL=1 apply_imagefull "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
+	image-fix) IMGFIX=1 apply_imagefix "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	paste-image) apply_pasteimage "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	paste-rich) apply_pasterich "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;
 	plain-paste) apply_plainpaste "$SRC_APP_DIR/app/Contents/Java/editor-app.jar" ;;

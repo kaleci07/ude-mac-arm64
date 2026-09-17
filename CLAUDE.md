@@ -1031,6 +1031,55 @@ Blast radius yalnız PDF dışa aktarımı; diğer kaydetme/imza yolları dokunu
 `lo.a:(Ljava/io/OutputStream;Z)V` + `iconst_1` çağırdığı görüldü; GUI testi (değişiklik
 yap → doğrudan PDF → son hâl gelmeli) kullanıcıya bırakıldı.
 
+## "Resim Ekle" sessiz başarısızlığı + sayfayı taşan görsel (IMGFIX=1, 2026-08)
+
+Kullanıcı şikâyeti: "resim ekle dediğimde seçtiğim resmi eklemiyor" — dosya seçiliyor,
+**hiçbir şey olmuyor**, uyarı da yok. İki ayrı kusur, ikisi de
+`scripts/macos-imagefix/` (Javassist + `macosimgfix` helper'ları, `apply_imagefix`):
+
+1. **SESSİZ BAŞARISIZLIK (asıl şikâyet) — bizim portumuzun regresyonu.**
+   Satıcı akışı: `text.bv` ("insert-image") → `gui.cz` (Resim Ekle/Düzenle penceresi)
+   → `cz.a()Z` GÖZAT → `JFileChooser` + `common.ab` filtresi (png/jpeg/jpg/gif/tif/
+   tiff/bmp, `setAcceptAllFileFilterUsed(false)`) → `utils.h.a(File)`.
+   **`MacFileDialog` filtreyi UYGULAMAZ** (bilinçli; eski `.udf` gizlenme regresyonu)
+   → NSOpenPanel **her dosyayı** seçtirir → kullanıcı HEIC (iPhone/Fotoğraflar
+   varsayılanı) veya WEBP (indirilen görseller) seçebiliyor. `h.a(File)` bunlarda
+   **istisna atmadan `null` döner** (`ImageIO.read`; canlı JVM'de ölçüldü) → UDE
+   null'ı geçerli sanıp `gui.cF.a(null)` → `new ImageIcon(null)` → **NPE** → pencere
+   hiç açılmaz. Hata yolu (`tr.gov.uyap…b.a(Exception)`) yalnız slf4j'e yazar →
+   kullanıcı hiçbir şey görmez. Aynı kusur `gui.gR` (Arka Plan Resmi GÖZAT) yolunda da var.
+   **Çözüm:** `h.a(File)`'a Javassist ile (a) `addCatch(Throwable)` → `ImageLoad.reportError`,
+   (b) `insertAfter` `$_ == null` → `ImageLoad.reportNull` → Türkçe uyarı diyaloğu +
+   `ImageLoad$Reported extends IOException` fırlatılır. Böylece UDE'nin **KENDİ** iptal
+   yolu (cz: `dispose()`; gR: `catch IOException`) devreye girer, NPE oluşmaz.
+   `insertAfter` kodu catch aralığının DIŞINDA kaldığı için çift diyalog imkânsız
+   (yine de `Reported` işareti savunma olarak duruyor). HEIC/WEBP hâlâ EKLENEMEZ —
+   kullanıcı kararı: yalnız "neden olmadığını söyle" (dönüştürme desteği istenmedi).
+2. **SAYFAYI TAŞAN GÖRSEL (IMGFULL yan etkisi).** IMGFULL, `h.a(hj,BufferedImage)`
+   sığdırmasını kaldırır (bitmap tam çözünürlükte gömülsün diye) ama `gui.cE`
+   ("Ekle" düğmesi) görünen ölçüyü bitmap'in **PİKSEL** ölçüsünden alır → 1200×800
+   görsel 1200×800 **PUNTO** ekleniyordu; A4 yazılabilir en **510.3 pt** (canlı ölçüm)
+   → görsel sayfayı taşıyordu. **Çözüm:** ekleme primitifi
+   `text.hj.a(BufferedImage,float,float)` başına `insertBefore` → `ImageFit.fit($0,$2,$3)`
+   görünen ölçüyü sayfaya sığdırır (yalnız küçültür, oran korunur). **Bitmap'e
+   DOKUNULMAZ** → IMGFULL keskinliği/baskı kalitesi durur.
+   - Pano yapıştırma (PASTEIMG) etkilenmez: `hj.paste()` görünen ölçüyü zaten kendi
+     hesabından (local 5/6) geçirir, bitmap'ten değil → fit no-op. PASTERICH de ≤480pt.
+   - IMGRESIZE (fare ile büyütme) etkilenmez: o yol `wp.model.T.d/g` attribute'larını
+     doğrudan yazar, bu primitiften geçmez → kullanıcı sonradan sayfadan büyük yapabilir.
+
+Sıra: `apply_imagefix`, **`apply_imagefull`'DAN SONRA** (ikisi de `utils.h` yazar;
+sonraki her zaman güncel jar'ı okur). `apply_pasteimage` sonra `hj`'yi yeniden yazar —
+yamamız korunur (Javassist yamalı sınıfı jar'dan okur; paketlenmiş jar'da doğrulandı).
+İdempotans iki katmanlı: build.sh `macosimgfix/ImageFit.class` arar; patcher ayrıca
+`CtClass.getRefClasses()` ile atıf denetler.
+
+Teşhis deseni (kilit): dynamic-attach probe'la canlı JVM'de `h.a(File)` çağrılıp dönüşü
+ölçüldü (HEIC → `NULL`), `cF.a(null)` ile NPE birebir üretildi; ekleme `hj.a(img,w,h)`
+ile sürülüp **yalnız UDE penceresi** `screencapture -l<winID>` ile yakalandı (taşma
+ve düzeltme piksel üstünde görüldü). Testler: `tests/ImageFitTest.java`,
+`tests/ImageLoadMessageTest.java` (javac+java elle; başlıkta komutlar).
+
 ## Satır aralığı 1.5 (LINESPACING=1, 2026-07)
 
 UDE'nin Giriş>Paragraf bandındaki NATIVE satır-aralığı popup'ı
@@ -1063,6 +1112,46 @@ jar'da varsa atlanır.
   sessizce hiç kurulmadı; native kontrol keşfedilince revert edildi
   (`a9d16d3`) — canlı popup içeriğiyle bytecode string'lerini karşılaştırmak
   kök teşhisi verdi.
+
+## Güncelleme yolu: kur.sh kendini günceller (2026-08)
+
+Kullanıcı şikâyeti "yeni UDE sürümü çıktı ama bende hep 5.4.17" (uygulamayı silip
+yeniden kursa bile). KÖK NEDEN kaynak kodun bayatlaması: `kur.sh` YALNIZ
+`curl | bash` yolunda `git pull` yapıyordu; depoyu bir kez indirip sonra klasörün
+içinden `./kur.sh` çalıştıran kullanıcı ESKİ kodda kalıyordu. Eski kodun iki
+kusuru bunu kalıcılaştırıyordu: (a) indirme önbelleği SÜRÜM-DUYARSIZDI (cached
+`downloads/ude.zip` sonsuza dek yeniden paketleniyordu), (b) link araması
+küçük-harf `uyapdokumaneditoru*.zip` idi — satıcı 5.4.19'da adı
+`UyapDokumanEditoru-AppleSilicon-X.Y.Z.zip` yaptı → eşleşme yok → sessizce
+önbellek. Düzeltme: `self_update()` her çalıştırmada `git pull --ff-only` yapıp
+kendini yeniden çalıştırır (guard `UDE_KUR_SELFUPDATED`; kirli ağaç/uzak dal yoksa
+atlanır), `download()` paketlenen UDE sürümünü BASAR + satıcı uç noktasıyla
+(önek toleranslı) sapmayı uyarır, kur.sh sonunda "Kurulan UDE sürümü: X" yazar.
+Test: `bash tests/kur-selfupdate-test.sh` (yerel sahte origin; ağ/derleme yok;
+`UDE_KUR_SELFUPDATE_ONLY=1` kancasıyla yalnız güncelleme adımı koşar).
+İKİNCİ sessiz yol (README komutunu kullananlar): bootstrap `git pull --ff-only ||
+warn` idi — geçmiş ayrıldıysa YALNIZ uyarı basılıp eski kodla devam ediliyordu.
+Ortak `repo_update()`: ff-only düşerse ağaç KİRLİyse dokunma (geliştirici kopyası),
+TEMİZSE `fetch origin <dal>` + `reset --hard FETCH_HEAD` ile hizala (sığ --depth 1
+klonda da çalışır; testte kapsandı). ZIP olarak indirilmiş (git olmayan) klasörde
+die mesajı artık `rm -rf` komutunu veriyor.
+NOT: fix'ten ÖNCEKİ kur.sh'a sahip kullanıcılar bir kez tek-satırlık komutu (ya da
+`git pull`) çalıştırmalı — eski betik kendini güncelleyemez.
+**5.4.20 doğrulandı (2026-08-24):** tam hat (download→merge→20 yama→package→sign)
+sorunsuz; obfuscate hedefler değişmemiş, ⌘C/⌘V canlı probe ile OK.
+**5.4.21 doğrulandı (2026-09-17):** 20 yama + skin sorunsuz, uygulama açıldı.
+
+### "Editörün yeni sürümü mevcut" diyaloğu (2026-09 teşhisi)
+
+UDE açılışta `editor.uyap.gov.tr/editorUpdaterYeni`'ye GET atar, `Content-Disposition:
+filename="X.Y.Z.release"`'i noktasız sayıya çevirir (5.4.20→5420) ve `gui.lo.g()`'deki
+**derleme-zamanı sabitiyle** (`"54"+"20"`; Info.plist/cfg okunmaz) karşılaştırır
+(`lp.run`: uzak > yerel ise diyalog). Sonuç 2 gün `~/.uki/acilisDegerleri.xml`'de
+(`editorVersiyon`, `editorVersiyonControl`) önbelleklenir. Yani diyalog YALNIZ paketlenen
+UDE uç noktadakinden ESKİYSE çıkar → kullanıcı raporu = bayat kaynak kod/önbellek
+(kur.sh self-update öncesi kopya). Doğrulama: `plutil -p …/Info.plist | grep CFBundleVersion`.
+Satıcının iki kaynağı ayrışabilir: indirme sayfası 5.4.21 verirken uç nokta 5.4.20
+diyordu (build.sh "FARKLI" uyarısı zararsız; yeni paket eski uç noktayla diyalog ÜRETMEZ).
 
 ## Agent kurulum günlüğü (issue #6 teşhis kanalı)
 
@@ -1166,6 +1255,12 @@ yazmak hem risk hem lisansın "türetilmiş sürüm" alanı → ayrı süreç ol
   yutulur, CannotCompileException).
 - Aynı CtClass'a ikinci `writeClass` öncesi tüm yamaları bitir ("class is frozen").
 - bash 3.2 + `set -u`: boş dizi `${arr[@]+"${arr[@]}"}` ile genişletilir.
+- **CLT/Xcode SDK kayması (2026-09):** `NativeDialogKeys.m` linki "unknown architecture
+  arm64e.x1 … .tbd" ile düşer. Neden: xcode-select Xcode'u gösterse de clang diskteki EN
+  YENİ SDK'yı (güncel Command Line Tools'un macOS 27 SDK'sı) seçer, Xcode 26.5'in eski
+  ld'si (1267) yeni tbd hedefini tanımaz. Boş Cocoa programı bile linklenmez (teşhis
+  probu). Çözüm `textkeys()`: `-isysroot "$(xcrun --sdk macosx --show-sdk-path)"` →
+  seçili araç setiyle EŞLEŞEN SDK. 5.4.21 ile ilgisi yok (Java yamaları geçmişti).
 - jpackage `-javaagent` satırı jar yoksa JVM'i HİÇ başlatmaz → agent opsiyonelse
   java-options koşullu eklenir (`lookopts` deseni).
 - **Gömülecek runtime OpenJDK derlemesi OLMALI (issue #7):** Oracle JDK 11 (aarch64)
