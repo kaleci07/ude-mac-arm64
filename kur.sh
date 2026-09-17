@@ -143,10 +143,28 @@ repo_update() {  # $1=depo dizini → 0: güncel/güncellendi, 1: güncellenemed
 	fi
 	local br; br="$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 	[ "$br" = "HEAD" ] && br="main"
-	say "Normal güncelleme yapılamadı; kaynak kod uzak sürüme hizalanıyor…"
 	git -C "$d" fetch --quiet origin "$br" 2>/dev/null \
 		|| git -C "$d" fetch --quiet origin main 2>/dev/null \
 		|| { warn "Uzak depoya erişilemedi (internet?); mevcut sürümle devam ediliyor."; return 1; }
+	# YEREL EKLENTİ KORUMASI: depoda .kur-yerel-koruma varsa ve HEAD'de uzakta olmayan
+	# commit'ler duruyorsa (ör. İmza Birleştirici) reset --hard onları SİLERDİ. Bu durumda uzak
+	# sürüm BİRLEŞTİRİLİR; çakışırsa birleştirme geri alınır ve mevcut kodla devam edilir.
+	# İşaret dosyası olmayan kopyalarda davranış değişmez (aşağıdaki sert hizalama).
+	if [ -f "$d/.kur-yerel-koruma" ] \
+		&& [ "$(git -C "$d" rev-list --count FETCH_HEAD..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
+		say "Yerel eklentiler korunarak uzak sürüm birleştiriliyor…"
+		local ad eposta
+		ad="$(git -C "$d" config user.name 2>/dev/null || true)"
+		eposta="$(git -C "$d" config user.email 2>/dev/null || true)"
+		if git -C "$d" -c user.name="${ad:-UDE kur.sh}" -c user.email="${eposta:-kur.sh@localhost}" \
+			merge --no-edit --quiet FETCH_HEAD >/dev/null 2>&1; then
+			return 0
+		fi
+		git -C "$d" merge --abort >/dev/null 2>&1 || true
+		warn "Uzak sürüm yerel eklentilerle çakıştı; birleştirilmedi, mevcut sürümle devam ediliyor."
+		return 1
+	fi
+	say "Normal güncelleme yapılamadı; kaynak kod uzak sürüme hizalanıyor…"
 	git -C "$d" reset --hard --quiet FETCH_HEAD 2>/dev/null \
 		|| { warn "Hizalama başarısız. Temiz kurulum için: rm -rf \"$d\" ve komutu tekrar çalıştırın."; return 1; }
 	return 0

@@ -1,0 +1,10 @@
+Bu dosya kur.sh'a şunu söyler: bu kopyada yazarın deposunda (saidsurucu/ude-mac-arm64)
+OLMAYAN yerel eklentiler var.
+
+Dosya varken otomatik güncelleme (kur.sh repo_update) yerel commit'leri reset --hard ile
+SİLMEZ: uzak sürümü birleştirir; çakışırsa birleştirmeyi geri alır ve mevcut kodla devam eder.
+Dosya yoksa kur.sh yazarın davranışına döner (ayrılan geçmişte uzak sürüme sert hizalanır).
+
+Yerel eklentiler (kaleci07):
+- UDF İmza Birleştirici — vendor/udf-imza-birlestirici, build.sh imza adımı,
+  Araçlar › İmza › "İmzaları Birleştir" düğmesi (macostextkeys.ImzaBirlestir).

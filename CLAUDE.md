@@ -1242,6 +1242,15 @@ yazmak hem risk hem lisansın "türetilmiş sürüm" alanı → ayrı süreç ol
 - Otomatik güncelleme uçtan uca: yeni sürüm → indir + 8/8 + yeni commit gömüldü; bozuk sürüm →
   `--sinama` yakaladı, sabit kopyayla yeniden paketlendi.
 
+### Yazarın deposuyla birleşme (17.09.2026)
+- `saidsurucu/ude-mac-arm64` 17.09'da yeniden açıldı; 6 commit'i (IMGFIX, kur.sh öz-güncelleme, dylib
+  SDK) bizim dalla birleştirildi. Tek çakışma build.sh değişken bloğuydu (IMZA_* ↔ IMGFIX_*: ikisi de tutulur).
+- **Yazarın `repo_update`'i ayrılan geçmişte `reset --hard FETCH_HEAD` yapar → İmza Birleştirici commit'lerini
+  siler.** Koruma: depo kökündeki `.kur-yerel-koruma` varken ve `FETCH_HEAD..HEAD` boş değilken uzak sürüm
+  `merge --no-edit` ile birleştirilir; çakışırsa `merge --abort` + uyarı, HEAD değişmez. İşaret yoksa yazarın
+  davranışı aynen. `tests/kur-selfupdate-test.sh` 6. ve 7. senaryolar; test origin'inden işaret silinir ki
+  yazarın senaryoları kendi davranışını sınasın. Yazardan yeni commit alırken bu bloğun korunduğuna bak.
+
 ### Tuzaklar
 - `plist_yaz.py` Info.plist'i PyInstaller'ın ad-hoc imzasından SONRA değiştirir → yeniden imzala.
 - **Terminalden `…/MacOS/UyapDokumanEditoru` açılınca pencere GÖRÜNMEZ:** uygulama etkinleşmez,
