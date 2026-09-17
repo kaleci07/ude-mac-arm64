@@ -1250,6 +1250,10 @@ yazmak hem risk hem lisansın "türetilmiş sürüm" alanı → ayrı süreç ol
   `merge --no-edit` ile birleştirilir; çakışırsa `merge --abort` + uyarı, HEAD değişmez. İşaret yoksa yazarın
   davranışı aynen. `tests/kur-selfupdate-test.sh` 6. ve 7. senaryolar; test origin'inden işaret silinir ki
   yazarın senaryoları kendi davranışını sınasın. Yazardan yeni commit alırken bu bloğun korunduğuna bak.
+- **Native dylib alt sınırı:** yazarın SDK düzeltmesi (`-isysroot` = seçili SDK) deployment target
+  vermediği için dylib SDK sürümünü alır (CLT 27 → `minos 27.0`). Başka Mac'e gidecek paketi
+  `MACOSX_DEPLOYMENT_TARGET=26.0 bash scripts/build.sh textkeys && … package && … sign` ile üret
+  (İmza Birleştirici yardımcısı zaten minos 26.0). 17.09.2026 kurulumu böyle derlendi; `vtool -show-build` ile bak.
 
 ### Tuzaklar
 - `plist_yaz.py` Info.plist'i PyInstaller'ın ad-hoc imzasından SONRA değiştirir → yeniden imzala.
