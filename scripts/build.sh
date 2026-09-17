@@ -411,7 +411,12 @@ textkeys() {
 	# Panel AWT'nin dışında → Java'dan çözülemez; agent bu dylib'i System.load eder.
 	c_info "native diyalog kısayolları dylib'i derleniyor (NSSavePanel Cmd+V)…"
 	command -v clang >/dev/null 2>&1 || die "clang yok (xcode-select --install)."
-	clang -dynamiclib -framework Cocoa -o "$BUILD/_textkeys/libnativedialogkeys.dylib" \
+	# SDK, seçili araç setinin (xcode-select) KENDİ SDK'sı olmalı: clang varsayılan olarak
+	# diskteki EN YENİ SDK'yı seçiyor (ör. güncel CLT'nin macOS 27 SDK'sı); Xcode'un daha
+	# eski linker'ı o SDK'nın tbd hedeflerini (arm64e.x1) tanımayıp "unknown architecture"
+	# ile düşüyor (CLT/Xcode sürüm kayması, 2026-09). xcrun --sdk macosx eşleşen SDK'yı verir.
+	local sdk; sdk="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"
+	clang -dynamiclib ${sdk:+-isysroot "$sdk"} -framework Cocoa -o "$BUILD/_textkeys/libnativedialogkeys.dylib" \
 		"$TEXTKEYS_SRC/native/NativeDialogKeys.m" || die "NativeDialogKeys derlenemedi."
 	c_ok "libnativedialogkeys.dylib derlendi"
 }

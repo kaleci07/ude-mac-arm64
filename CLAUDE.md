@@ -1139,6 +1139,19 @@ NOT: fix'ten ÖNCEKİ kur.sh'a sahip kullanıcılar bir kez tek-satırlık komut
 `git pull`) çalıştırmalı — eski betik kendini güncelleyemez.
 **5.4.20 doğrulandı (2026-08-24):** tam hat (download→merge→20 yama→package→sign)
 sorunsuz; obfuscate hedefler değişmemiş, ⌘C/⌘V canlı probe ile OK.
+**5.4.21 doğrulandı (2026-09-17):** 20 yama + skin sorunsuz, uygulama açıldı.
+
+### "Editörün yeni sürümü mevcut" diyaloğu (2026-09 teşhisi)
+
+UDE açılışta `editor.uyap.gov.tr/editorUpdaterYeni`'ye GET atar, `Content-Disposition:
+filename="X.Y.Z.release"`'i noktasız sayıya çevirir (5.4.20→5420) ve `gui.lo.g()`'deki
+**derleme-zamanı sabitiyle** (`"54"+"20"`; Info.plist/cfg okunmaz) karşılaştırır
+(`lp.run`: uzak > yerel ise diyalog). Sonuç 2 gün `~/.uki/acilisDegerleri.xml`'de
+(`editorVersiyon`, `editorVersiyonControl`) önbelleklenir. Yani diyalog YALNIZ paketlenen
+UDE uç noktadakinden ESKİYSE çıkar → kullanıcı raporu = bayat kaynak kod/önbellek
+(kur.sh self-update öncesi kopya). Doğrulama: `plutil -p …/Info.plist | grep CFBundleVersion`.
+Satıcının iki kaynağı ayrışabilir: indirme sayfası 5.4.21 verirken uç nokta 5.4.20
+diyordu (build.sh "FARKLI" uyarısı zararsız; yeni paket eski uç noktayla diyalog ÜRETMEZ).
 
 ## Agent kurulum günlüğü (issue #6 teşhis kanalı)
 
@@ -1179,6 +1192,12 @@ Test: `tests/AgentLogTest.java` (javac+java elle; başlıkta komutlar).
   yutulur, CannotCompileException).
 - Aynı CtClass'a ikinci `writeClass` öncesi tüm yamaları bitir ("class is frozen").
 - bash 3.2 + `set -u`: boş dizi `${arr[@]+"${arr[@]}"}` ile genişletilir.
+- **CLT/Xcode SDK kayması (2026-09):** `NativeDialogKeys.m` linki "unknown architecture
+  arm64e.x1 … .tbd" ile düşer. Neden: xcode-select Xcode'u gösterse de clang diskteki EN
+  YENİ SDK'yı (güncel Command Line Tools'un macOS 27 SDK'sı) seçer, Xcode 26.5'in eski
+  ld'si (1267) yeni tbd hedefini tanımaz. Boş Cocoa programı bile linklenmez (teşhis
+  probu). Çözüm `textkeys()`: `-isysroot "$(xcrun --sdk macosx --show-sdk-path)"` →
+  seçili araç setiyle EŞLEŞEN SDK. 5.4.21 ile ilgisi yok (Java yamaları geçmişti).
 - jpackage `-javaagent` satırı jar yoksa JVM'i HİÇ başlatmaz → agent opsiyonelse
   java-options koşullu eklenir (`lookopts` deseni).
 - **Gömülecek runtime OpenJDK derlemesi OLMALI (issue #7):** Oracle JDK 11 (aarch64)
